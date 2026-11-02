@@ -20,6 +20,7 @@ const FALLBACK = "That didn't go through. Refresh and try again.";
 const ERRORS: Record<string, string> = {
   not_ready: "That variant isn't ready for review yet.",
   not_failed: "Only a failed item can be retried.",
+  not_queued: "The retry couldn't be queued, so the item is still failed. Try again in a moment.",
   run_not_in_draft: "This job is no longer a draft, so it can't be changed.",
   no_approved_visual: "Approve at least one visual before approving the job.",
   items_pending: "Wait for generation to finish before approving the job.",

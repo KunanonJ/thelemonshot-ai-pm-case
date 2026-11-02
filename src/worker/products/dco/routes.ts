@@ -9,7 +9,7 @@ import { allowlistView } from "./allowlist";
 import { inputKey, MAX_ASSET_BYTES, safeFileName, sha256Hex, sniffAsset, TOKEN_RE } from "./assets";
 import { dcoBriefSchema } from "./brief";
 import { buildDcoPack } from "./pack";
-import { createDcoRun, requeueSegment, requeueVisual } from "./pipeline";
+import { createDcoRun, requeueSegment, requeueVisual, sweepStuckDco, type RequeueResult } from "./pipeline";
 import { dcoAssets, dcoCopy, dcoEvents, dcoSegments, dcoVisuals } from "./schema";
 import { listDcoRuns, loadDcoDetail, loadDcoRows } from "./view";
 
@@ -178,11 +178,16 @@ dcoRoutes.post("/runs/:id/segments/:key/retry", requireRole("admin", "member"), 
   return retryResponse(c, result);
 });
 
-function retryResponse(c: Context<AppEnv>, result: "ok" | "not_found" | "not_failed" | "run_not_in_draft") {
+// A refused queue send leaves the slot failed, so the retry button stays for the next attempt
+function retryResponse(c: Context<AppEnv>, result: RequeueResult) {
   if (result === "ok") return c.json({ ok: true }, 202);
   if (result === "not_found") return notFound(c);
+  if (result === "not_queued") return c.json({ error: "not_queued" }, 503);
   return c.json({ error: result }, 409);
 }
+
+// Moves stuck pending or generating slots to failed and settles their jobs. Same sweep as the scheduled run.
+dcoRoutes.post("/admin/sweep", requireRole("admin"), async (c) => c.json({ moved: await sweepStuckDco(c.env, Date.now()) }));
 
 // FR-CORE-22: a job is approved only when something is approved and nothing is still generating
 dcoRoutes.post("/runs/:id/review", requireRole("admin", "member"), async (c) => {
