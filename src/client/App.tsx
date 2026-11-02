@@ -15,6 +15,8 @@ import { ProposalDetail } from "./pages/ProposalDetail";
 import { ProposalsHome } from "./pages/ProposalsHome";
 import { RunDetail } from "./pages/RunDetail";
 import { System } from "./pages/System";
+import { TrendDetail } from "./pages/TrendDetail";
+import { TrendsHome } from "./pages/TrendsHome";
 import type { Role } from "./types";
 
 export function App() {
@@ -78,5 +80,8 @@ function SignedIn() {
   if (campaign && campaign.id !== "new") return <CampaignDetail role={role} id={campaign.id!} userId={userId} />;
   if (path === "/creators") return <Creators role={role} />;
   if (path === "/system" && role === "admin") return <System role={role} />;
+  if (path === "/trends") return <TrendsHome role={role} />;
+  const trend = matchPath("/trends/:id", path);
+  if (trend) return <TrendDetail role={role} id={trend.id!} />;
   return <MatrixHome role={role} />;
 }

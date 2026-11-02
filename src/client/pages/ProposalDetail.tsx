@@ -4,7 +4,7 @@ import { Banner, Button, Card, cx, Drawer, Input, Pill, SampleDataPill, Select, 
 import { ApiError, useApi, useDownload, useResource } from "../lib/api";
 import { fmtAgo, fmtCompact, fmtDateTime, fmtPct, KPI_BASIS_LABELS, OBJECTIVE_LABELS, ORIGIN_LABELS, PLATFORM_LABELS, sectionFlag } from "../lib/format";
 import { Link } from "../lib/router";
-import type { AttachableShortlist, Evidence, FieldSpec, LeafSpec, ProposalDetail as Proposal, ProposalSection, ProposalTemplates, ProposalVersion, Role } from "../types";
+import type { AttachableShortlist, Evidence, FieldSpec, LeafSpec, ProposalDetail as Proposal, ProposalSection, ProposalTemplates, ProposalVersion, Role, TrendRunSummary } from "../types";
 
 type Content = Record<string, unknown>;
 type Item = Record<string, string>;
@@ -23,6 +23,9 @@ const ERRORS: Record<string, string> = {
   export_requires_approval: "Approve the proposal before exporting.",
   shortlist_not_attachable: "That shortlist can't be attached: it failed or was rejected.",
   shortlist_already_attached: "A shortlist is already attached.",
+  trend_not_approved: "Only an approved trend brief can be attached.",
+  trend_already_attached: "That trend brief is already attached.",
+  trend_not_found: "That trend brief no longer exists.",
 };
 
 const slug = (text: string) =>
@@ -141,6 +144,8 @@ export function ProposalDetail({ role, id, userId }: { role: Role; id: string; u
 
           <ShortlistBar proposal={p} canEdit={canEdit} acting={acting} onAttach={(matrixRunId) => void post("/attach", { matrixRunId })} />
 
+          <TrendBar proposal={p} canEdit={canEdit} acting={acting} onAttach={(trendRunId) => void post("/trends", { trendRunId })} />
+
           {sections.map((s) => (
             <SectionCard
               key={s.key}
@@ -252,6 +257,56 @@ function ShortlistBar({ proposal: p, canEdit, acting, onAttach }: { proposal: Pr
         </div>
       )}
     </Banner>
+  );
+}
+
+// ---------- trend briefs (AC-TM-2) ----------
+
+// Approved ② trend briefs join the assumptions. Only approved briefs can be attached (HR-4).
+function TrendBar({ proposal: p, canEdit, acting, onAttach }: { proposal: Proposal; canEdit: boolean; acting: boolean; onAttach: (trendRunId: string) => void }) {
+  const briefs = useResource<{ scope: string; runs: TrendRunSummary[] }>(canEdit ? "/api/trends/runs" : null);
+  const [choice, setChoice] = useState("");
+  const attached = p.trends ?? [];
+  const options = (briefs.data?.runs ?? []).filter((r) => r.status === "approved" && !attached.some((t) => t.runId === r.runId));
+  const selected = options.some((o) => o.runId === choice) ? choice : (options[0]?.runId ?? "");
+  return (
+    <Card className="p-4">
+      <h2 className="text-sm font-semibold">Trend briefs</h2>
+      <p className="mt-0.5 text-xs text-neutral-500">
+        Approved trend briefs cited in the assumptions. Their figures describe the posts pulled for each brief, not the platforms as a whole.
+      </p>
+      {attached.length > 0 ? (
+        <ul className="mt-3 space-y-1.5 text-[13px] text-neutral-700">
+          {attached.map((t) => (
+            <li key={t.runId}>
+              <Link to={`/trends/${t.runId}`} className="font-medium hover:underline">
+                Trend brief {t.runId.slice(0, 8)}
+              </Link>
+              <span className="text-neutral-500">
+                {" "}
+                · {t.terms.join(", ") || "no terms"} · {t.uniquePosts} unique posts · {t.themeCount} themes
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-3 text-[13px] text-neutral-500">None attached.</p>
+      )}
+      {canEdit && options.length > 0 && (
+        <div className="mt-3 flex items-center gap-2">
+          <Select value={selected} onChange={(e) => setChoice(e.target.value)} className="max-w-md">
+            {options.map((o) => (
+              <option key={o.runId} value={o.runId}>
+                {o.labels.join(", ") || "Trend brief"} · {o.uniquePosts ?? 0} unique posts · {fmtAgo(o.createdAt)}
+              </option>
+            ))}
+          </Select>
+          <Button size="sm" disabled={acting || !selected} onClick={() => onAttach(selected)}>
+            Attach trend brief
+          </Button>
+        </div>
+      )}
+    </Card>
   );
 }
 

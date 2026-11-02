@@ -26,6 +26,19 @@ export type CampaignRefreshTimeoutMessage = { kind: "campaign-refresh-timeout"; 
 
 export type MatrixRunMessage = { kind: "matrix-run"; runId: string };
 
+// ② Trend Monitoring: one poll per term and platform run, a timeout per pull, then one brief per pull
+export type TrendPollMessage = {
+  kind: "trend-poll";
+  pullId: string;
+  pullTermId: string;
+  platform: "instagram" | "tiktok";
+  localRunId: string;
+  apifyRunId: string;
+  startedAt: number;
+};
+export type TrendPullTimeoutMessage = { kind: "trend-pull-timeout"; pullId: string };
+export type TrendBriefMessage = { kind: "trend-brief"; pullId: string };
+
 // One message per proposal section: the first draft runs as a chain, regeneration as a single job (FR-CP-4)
 export type ProposalSectionMessage = {
   kind: "proposal-section";
@@ -46,4 +59,7 @@ export type QueueMessage =
   | MatrixRunMessage
   | ProposalSectionMessage
   | CampaignDigestMessage
-  | CampaignRefreshTimeoutMessage;
+  | CampaignRefreshTimeoutMessage
+  | TrendPollMessage
+  | TrendPullTimeoutMessage
+  | TrendBriefMessage;
