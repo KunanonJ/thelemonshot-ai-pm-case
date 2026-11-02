@@ -11,6 +11,8 @@ import { campaignRoutes } from "./products/optimization/routes";
 import { matrixRoutes } from "./products/matrix/routes";
 import { handleProposalSection } from "./products/proposal/pipeline";
 import { proposalRoutes } from "./products/proposal/routes";
+import { rmnPublicRoutes } from "./products/rmn/store";
+import { rmnRoutes } from "./products/rmn/routes";
 import { adminRoutes } from "./routes/admin";
 import { creatorRoutes } from "./routes/creators";
 
@@ -33,6 +35,9 @@ app.get("/health", async (c) => {
   });
 });
 
+// ⑥ RMN: the public tracked-link redirect and the demo store (no sign-in: shoppers aren't users)
+app.route("/", rmnPublicRoutes);
+
 // Public by design: the publishable key is meant for the browser. The local test flag follows requireAuth's rule.
 app.get("/config", (c) =>
   c.json({ clerkPublishableKey: readSecret(c.env, "CLERK_PUBLISHABLE_KEY") ?? null, ...(devAuthBypass(c.env, c.req.url) ? { devAuthBypass: true } : {}) }),
@@ -44,6 +49,7 @@ app.route("/api/matrix", matrixRoutes);
 app.route("/api/proposals", proposalRoutes);
 app.route("/api/campaigns", campaignRoutes);
 app.route("/api/creators", creatorRoutes);
+app.route("/api/rmn", rmnRoutes);
 app.route("/api/admin/phase0", phase0);
 app.route("/api/admin", adminRoutes);
 app.all("/api/*", (c) => c.json({ error: "not_found" }, 404));
