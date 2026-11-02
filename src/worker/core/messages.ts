@@ -39,6 +39,12 @@ export type ProposalSectionMessage = {
   waitedMs?: number;
 };
 
+// ⑤ Creative Variants: copy per segment, one provider call per visual slot, then polling until the provider answers
+export type DcoCopyMessage = { kind: "dco-copy"; runId: string; segmentKey: string; requestedBy: string };
+// origin is where the base-asset link is minted (the request's own origin); the link is never stored in a message
+export type DcoVisualMessage = { kind: "dco-visual"; runId: string; planKey: string; origin: string; requestedBy: string };
+export type DcoVisualPollMessage = { kind: "dco-visual-poll"; runId: string; planKey: string; polls: number };
+
 export type QueueMessage =
   | Phase0Message
   | EnrichMessage
@@ -46,4 +52,7 @@ export type QueueMessage =
   | MatrixRunMessage
   | ProposalSectionMessage
   | CampaignDigestMessage
-  | CampaignRefreshTimeoutMessage;
+  | CampaignRefreshTimeoutMessage
+  | DcoCopyMessage
+  | DcoVisualMessage
+  | DcoVisualPollMessage;

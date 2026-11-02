@@ -313,3 +313,18 @@ export type CampaignDigest = {
   createdAt: number;
   actions: CampaignAction[];
 };
+
+// ---------- ⑤ Creative Variants (DCO) ----------
+
+export type DcoRunStatus = "queued" | "running" | "draft" | "approved" | "rejected" | "failed";
+export type DcoItemStatus = "pending" | "generating" | "ready" | "failed";
+export type DcoReviewStatus = "draft" | "approved" | "rejected";
+export type DcoBrief = { brand: string; product: string; offer?: string; segments: { name: string; note?: string }[]; brandVoice?: string; prohibitedClaims: string[]; copyPerSegment: number };
+export type DcoProvenance = { jobId: string; modelId: string; planKey: string; format: string; prompt: string; negativePrompt: string | null; seed: number | null; falRequestId: string; inputSha256: string; outputSha256: string; outputBytes: number; contentType: string; promptVersion: string; submittedAt: number; completedAt: number };
+export type DcoRunSummary = { id: string; status: DcoRunStatus; createdAt: number; reviewedAt: number | null; brief: DcoBrief | null; progress: { visualsTotal: number; visualsReady: number; visualsFailed: number; visualsPending: number; copyReady: number; copyFailed: number; copyPending: number; approvedVisuals: number } };
+export type DcoSegmentView = { key: string; name: string; note: string | null; status: DcoItemStatus; error: string | null; copyCount: number };
+export type DcoCopyView = { id: string; segmentKey: string; position: number; headline: string; hookLine: string; caption: string; cta: string; flags: string[]; reviewStatus: DcoReviewStatus; reviewedBy: string | null; reviewedAt: number | null; model: string; promptVersion: string; createdAt: number };
+export type DcoVisualView = { key: string; position: number; kind: "format" | "scene"; label: string; segmentKey: string; format: string; modelId: string; status: DcoItemStatus; error: string | null; attempts: number; reviewStatus: DcoReviewStatus; reviewedBy: string | null; reviewedAt: number | null; bytes: number | null; contentType: string | null; provenance: DcoProvenance | null; hasImage: boolean };
+export type DcoEventView = { id: string; kind: string; payload: Record<string, unknown>; actor: string; createdAt: number };
+export type DcoRunDetail = { id: string; status: DcoRunStatus; createdAt: number; reviewedAt: number | null; reviewedBy: string | null; brief: DcoBrief; asset: { fileName: string; contentType: string; bytes: number; sha256: string; uploadedBy: string; uploadedAt: number; rightsAttestedBy: string; rightsAttestedAt: number } | null; segments: DcoSegmentView[]; copy: DcoCopyView[]; visuals: DcoVisualView[]; safetyDiscarded: number; approvedVisuals: number; exportable: boolean; events: DcoEventView[] };
+export type DcoAllowlist = { models: { id: string; role: "layout" | "scene"; description: string; docs: string; verifiedOn: string; providerSafetyField: string }[]; blockedFamilies: string[]; audit: { ok: boolean; checked: number; violations: { id: string; reason: string }[] } };

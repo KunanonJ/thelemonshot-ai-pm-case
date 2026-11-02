@@ -7,9 +7,12 @@ import { matchPath, RouterProvider, useRouter } from "./lib/router";
 import { CampaignDetail } from "./pages/CampaignDetail";
 import { CampaignsHome } from "./pages/CampaignsHome";
 import { Creators } from "./pages/Creators";
+import { DcoDetail } from "./pages/DcoDetail";
+import { DcoHome } from "./pages/DcoHome";
 import { MatrixHome } from "./pages/MatrixHome";
 import { NewBrief } from "./pages/NewBrief";
 import { NewCampaign } from "./pages/NewCampaign";
+import { NewDco } from "./pages/NewDco";
 import { NewProposal } from "./pages/NewProposal";
 import { ProposalDetail } from "./pages/ProposalDetail";
 import { ProposalsHome } from "./pages/ProposalsHome";
@@ -67,6 +70,7 @@ function SignedIn() {
   const run = matchPath("/matrix/runs/:id", path);
   const proposal = matchPath("/proposals/:id", path);
   const campaign = matchPath("/campaigns/:id", path);
+  const dco = matchPath("/dco/:id", path);
 
   if (path === "/matrix/new" && role !== "viewer") return <NewBrief role={role} />;
   if (run) return <RunDetail role={role} id={run.id!} userId={userId} />;
@@ -76,6 +80,9 @@ function SignedIn() {
   if (path === "/campaigns") return <CampaignsHome role={role} />;
   if (path === "/campaigns/new" && role !== "viewer") return <NewCampaign role={role} />;
   if (campaign && campaign.id !== "new") return <CampaignDetail role={role} id={campaign.id!} userId={userId} />;
+  if (path === "/dco") return <DcoHome role={role} />;
+  if (path === "/dco/new" && role !== "viewer") return <NewDco role={role} />;
+  if (dco && dco.id !== "new") return <DcoDetail role={role} id={dco.id!} userId={userId} />;
   if (path === "/creators") return <Creators role={role} />;
   if (path === "/system" && role === "admin") return <System role={role} />;
   return <MatrixHome role={role} />;
