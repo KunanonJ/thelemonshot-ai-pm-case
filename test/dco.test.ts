@@ -8,6 +8,9 @@ import { MAX_ASSET_BYTES, mintToken, safeFileName, sniffAsset, TOKEN_RE } from "
 import { copySheetCsv, csvCell, provenanceCsv } from "../src/worker/products/dco/pack";
 import { buildZip, crc32 } from "../src/worker/products/dco/zip";
 import { falInput, isSafetyErrorType, isSafetyFlagged, outputImages, outputSeed, planFor, VISUAL_PLAN } from "../src/worker/products/dco/visuals";
+import { CLAIM_LEASE_MS, insertStatements, MAX_POLLS, POLL_SECONDS, sendEach, STUCK_MS, USER_FAILURE_TEXTS } from "../src/worker/products/dco/pipeline";
+import { dcoVisuals } from "../src/worker/products/dco/schema";
+import type { Db } from "../src/worker/core/db/client";
 
 const fake = (over: Partial<AllowedModel>): AllowedModel => ({
   id: "fal-ai/bria/expand",
@@ -383,5 +386,68 @@ describe("store-only ZIP and CSV export (FR-DC-4, FR-DC-5)", () => {
     expect(lines.some((l) => l.startsWith("copy,c1,Students,copy option"))).toBe(true);
     expect(sheet).toContain("run-9");
     expect(sheet).toContain("not returned by the model");
+  });
+});
+
+// The timing rules and the pure parts of queueing and failure handling for stuck or unsent slots
+describe("failure handling for stuck and unsent slots", () => {
+  it("a claim outlasts the slowest normal step, and the sweep waits longer than a claim lease", () => {
+    expect(CLAIM_LEASE_MS).toBeGreaterThan(MAX_POLLS * POLL_SECONDS * 1000);
+    expect(STUCK_MS).toBeGreaterThan(CLAIM_LEASE_MS);
+  });
+
+  it("sends every message and reports only the ones whose send threw", async () => {
+    const sent: string[] = [];
+    const unsent = await sendEach(["copy s1", "visual format-1x1", "copy s2"], async (item) => {
+      if (item === "visual format-1x1") throw new Error("queue unavailable");
+      sent.push(item);
+    });
+    expect(sent).toEqual(["copy s1", "copy s2"]);
+    expect(unsent).toEqual([{ item: "visual format-1x1", error: "queue unavailable" }]);
+  });
+
+  it("splits a bulk insert so no statement binds more than 100 parameters", () => {
+    const row = (i: number) => ({
+      id: `v${i}`,
+      runId: "run",
+      planKey: `p${i}`,
+      position: i,
+      kind: "format" as const,
+      label: "Square",
+      segmentKey: "s1",
+      format: "1:1",
+      modelId: "fal-ai/bria/expand",
+      status: "pending" as const,
+      attempts: 0,
+      error: null,
+      falRequestId: null,
+      statusUrl: null,
+      responseUrl: null,
+      submittedAt: null,
+      r2Key: null,
+      contentType: null,
+      bytes: null,
+      provenance: null,
+      reviewStatus: "draft" as const,
+      reviewedBy: null,
+      reviewedAt: null,
+      updatedAt: 0,
+    });
+    // A stand-in for the drizzle handle: it only records what each insert would bind
+    const fakeDb = { insert: (table: unknown) => ({ values: (rows: unknown[]) => ({ table, rows }) }) } as unknown as Db;
+    const rows = [0, 1, 2, 3, 4].map(row);
+    const statements = insertStatements(fakeDb, dcoVisuals, rows) as unknown as { rows: unknown[] }[];
+    const columns = Object.keys(rows[0]!).length;
+    expect(columns).toBe(24);
+    expect(statements.map((s) => s.rows.length)).toEqual([4, 1]);
+    expect(statements.every((s) => s.rows.length * columns <= 100)).toBe(true);
+    expect(insertStatements(fakeDb, dcoVisuals, [])).toEqual([]);
+  });
+
+  it("every failure text a signed-in user can see is one plain sentence with no raw detail", () => {
+    for (const text of USER_FAILURE_TEXTS) {
+      expect(text).toMatch(/^[A-Z][^:{}<>"]*\.$/);
+      expect(text).not.toMatch(/Error|undefined|null|[–—]/u);
+    }
   });
 });
