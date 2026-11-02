@@ -19,6 +19,7 @@ Slide 19 covers the asks. The appendix (slides 20-25) holds the score rationale,
 
 | Path | What it is |
 |---|---|
+| `brief/TheLemonShot_AI-PM-Case-Brief.docx` | The case brief as received. It's a Word file, so GitHub downloads it instead of showing a preview |
 | `deck/TheLemonShot_AI-PM-Case.pdf` | The deck, one slide per page |
 | `deck/TheLemonShot_AI-PM-Case.html` | The same deck, interactive: on slide 5 the weight presets re-score the use cases live. Download it and open it in a browser. Arrow keys move between slides, `N` shows speaker notes, `F` goes full screen |
 | `deck/src/`, `deck/build.sh` | Slide sources. `deck/build.sh` joins them into the HTML and exports the PDF with Google Chrome (macOS path) |
