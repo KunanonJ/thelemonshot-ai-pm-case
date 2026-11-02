@@ -4,6 +4,8 @@ import { requireRole, type AppEnv } from "../core/auth";
 import { DISCOVERY_DEFAULTS, startDiscovery } from "../core/enrichment/discovery";
 import { errorMessage } from "../core/env";
 import { DEFAULT_MODEL, FORCE_FAIL_FLAG } from "../core/llm";
+import { recomputeHistory } from "../products/optimization/closing";
+import { runDueRefreshes } from "../products/optimization/refresh";
 
 export const adminRoutes = new Hono<AppEnv>();
 adminRoutes.use("*", requireRole("admin"));
@@ -100,3 +102,9 @@ adminRoutes.post("/flags", async (c) => {
   else await c.env.CONFIG.delete(FORCE_FAIL_FLAG);
   return c.json({ ok: true });
 });
+
+// ③: the same code path the cron runs, for when a scheduled refresh is wanted now (AC-CO-1 on demand)
+adminRoutes.post("/campaigns/run-due", async (c) => c.json({ started: await runDueRefreshes(c.env) }));
+
+// FR-CORE-21: history scores rebuilt from outcome records alone, to prove they are recomputable
+adminRoutes.post("/history/recompute", async (c) => c.json(await recomputeHistory(c.env)));

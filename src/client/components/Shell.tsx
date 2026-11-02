@@ -12,7 +12,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
     items: [
       { label: "Creator Matrix", to: "/matrix" },
       { label: "Campaign Proposal", to: "/proposals" },
-      { label: "Campaign Optimization", soon: "Phase 3" },
+      { label: "Campaign Optimization", to: "/campaigns" },
       { label: "Trend Monitoring", soon: "Phase 4" },
       { label: "Creative Variants", soon: "Phase 5" },
       { label: "Retail Media", soon: "Phase 6" },

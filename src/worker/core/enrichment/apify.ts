@@ -1,19 +1,24 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "../db/client";
 import { apifyRuns } from "../db/schema";
-import { errorMessage, readSecret } from "../env";
+import { errorMessage, localOverride, readSecret } from "../env";
 import { fetchWithRetry } from "../http";
 import { newId } from "../util";
 
 // Apify API v2 (docs.apify.com/api/v2): Bearer auth, canonical /v2/actors/ prefix (the /v2/acts/ form is deprecated)
-const APIFY_API = "https://api.apify.com/v2";
+const apifyApi = (env: Env) => localOverride(env, "APIFY_API_URL", "https://api.apify.com/v2");
 
 export const ACTORS = {
   instagramProfile: "apify~instagram-profile-scraper",
   tiktokProfile: "clockworks~tiktok-profile-scraper",
   instagramHashtag: "apify~instagram-hashtag-scraper",
   tiktokSearch: "clockworks~tiktok-scraper",
+  // Post-level refresh for ③: Instagram takes post URLs in directUrls, TikTok in postURLs (Apify Store input schemas, 2 Nov 2026)
+  instagramPosts: "apify~instagram-scraper",
+  tiktokPosts: "clockworks~tiktok-scraper",
 } as const;
+
+export type ApifyPurpose = "profile" | "discovery" | "posts";
 
 export type ApifyRunState = { status: string; datasetId: string | null };
 
@@ -34,14 +39,14 @@ export async function startActor(
   env: Env,
   actor: string,
   input: Record<string, unknown>,
-  purpose: "profile" | "discovery",
+  purpose: ApifyPurpose,
   inputSummary: string,
 ): Promise<{ localRunId: string; apifyRunId: string }> {
   const db = getDb(env);
   const localRunId = newId();
   const startedAt = Date.now();
   try {
-    const res = await fetchWithRetry(`${APIFY_API}/actors/${actor}/runs`, {
+    const res = await fetchWithRetry(`${apifyApi(env)}/actors/${actor}/runs`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token(env)}`, "Content-Type": "application/json" },
       body: JSON.stringify(input),
@@ -60,7 +65,7 @@ export async function startActor(
 
 export async function getActorRun(env: Env, apifyRunId: string, waitForFinishSec: number): Promise<ApifyRunState> {
   const res = await fetchWithRetry(
-    `${APIFY_API}/actor-runs/${apifyRunId}?waitForFinish=${waitForFinishSec}`,
+    `${apifyApi(env)}/actor-runs/${apifyRunId}?waitForFinish=${waitForFinishSec}`,
     { headers: { Authorization: `Bearer ${token(env)}` } },
     { timeoutMs: (waitForFinishSec + 15) * 1000 },
   );
@@ -70,7 +75,7 @@ export async function getActorRun(env: Env, apifyRunId: string, waitForFinishSec
 }
 
 export async function getDatasetItems(env: Env, datasetId: string, limit: number): Promise<unknown[]> {
-  const res = await fetchWithRetry(`${APIFY_API}/datasets/${datasetId}/items?format=json&clean=true&limit=${limit}`, {
+  const res = await fetchWithRetry(`${apifyApi(env)}/datasets/${datasetId}/items?format=json&clean=true&limit=${limit}`, {
     headers: { Authorization: `Bearer ${token(env)}` },
   });
   if (!res.ok) throw new Error(`Apify dataset fetch failed: HTTP ${res.status}`);

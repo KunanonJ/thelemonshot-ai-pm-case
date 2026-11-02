@@ -65,3 +65,29 @@ export function sectionFlag(flag: string): { label: string; tone: "amber" | "neu
   if (kind === "no_shortlist") return { label: "No shortlist attached", tone: "neutral" };
   return { label: flag, tone: "neutral" };
 }
+
+export const ACTION_LABELS: Record<string, string> = {
+  scale_creator: "Scale this creator",
+  shift_posting_window: "Shift the posting window",
+  brief_follow_up: "Brief a follow-up asset",
+  retire_placement: "Retire this placement",
+  keep_monitoring: "Keep monitoring",
+};
+
+export const DELTA_LABELS: Record<string, string> = {
+  "vsBaseline.views": "Views vs baseline",
+  "vsBaseline.er": "Engagement vs baseline",
+  "vsPeer.views": "Views vs peer median",
+  "vsPeer.er": "Engagement vs peer median",
+  trend: "Trend",
+};
+
+export const TREND_LABELS: Record<string, string> = { rising: "Rising", steady: "Steady", falling: "Slowing", too_early: "Too early" };
+
+export function fmtSignedPct(n: number | null | undefined): string {
+  return n === null || n === undefined ? "–" : `${n > 0 ? "+" : ""}${n.toFixed(1)}%`;
+}
+
+export function fmtDate(ms: number | null | undefined): string {
+  return ms ? new Date(ms).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "–";
+}

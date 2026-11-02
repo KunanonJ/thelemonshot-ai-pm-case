@@ -13,6 +13,15 @@ export function readSecret(env: Env, name: SecretName): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
+// Local end-to-end tests only: LLM_CHAT_URL, APIFY_API_URL and YOUTUBE_API_URL in .dev.vars point an
+// external API at a mock on localhost. Any other value is ignored, so production always uses the real host.
+export type LocalOverride = "LLM_CHAT_URL" | "APIFY_API_URL" | "YOUTUBE_API_URL";
+
+export function localOverride(env: Env, name: LocalOverride, fallback: string): string {
+  const value = (env as unknown as Record<string, unknown>)[name];
+  return typeof value === "string" && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(value) ? value.replace(/\/$/, "") : fallback;
+}
+
 export function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }

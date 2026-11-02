@@ -262,6 +262,116 @@ export const proposalVersions = sqliteTable(
   (t) => [uniqueIndex("proposal_versions_uq").on(t.runId, t.sectionKey, t.version)],
 );
 
+// ---------- ③ Campaign Optimization (FR-CO-1…7) ----------
+
+// Organic scope only (HR-2): public post metrics, no ad-account data. Never deleted once written back (FR-CO-7).
+export const CAMPAIGN_STATUSES = ["active", "closed", "archived"] as const;
+export const campaigns = sqliteTable(
+  "campaigns",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    brand: text("brand").notNull(),
+    matrixRunId: text("matrix_run_id"),
+    startsAt: integer("starts_at").notNull(),
+    endsAt: integer("ends_at").notNull(),
+    status: text("status", { enum: CAMPAIGN_STATUSES }).notNull(),
+    lastRefreshAt: integer("last_refresh_at"),
+    // The outcome summary the planner confirmed at close, and the write-back it produced
+    outcome: text("outcome", { mode: "json" }).$type<Record<string, unknown> | null>(),
+    closedBy: text("closed_by"),
+    closedAt: integer("closed_at"),
+    createdBy: text("created_by").notNull(),
+    createdAt: integer("created_at").notNull(),
+    updatedAt: integer("updated_at").notNull(),
+  },
+  (t) => [index("campaigns_status_idx").on(t.status)],
+);
+
+export const campaignPosts = sqliteTable(
+  "campaign_posts",
+  {
+    id: text("id").primaryKey(),
+    campaignId: text("campaign_id")
+      .notNull()
+      .references(() => campaigns.id),
+    creatorId: text("creator_id")
+      .notNull()
+      .references(() => creators.id),
+    contentId: text("content_id")
+      .notNull()
+      .references(() => contentItems.id),
+    platform: text("platform", { enum: PLATFORMS }).notNull(),
+    url: text("url").notNull(),
+    baselineViews: integer("baseline_views"),
+    baselineEngagementRate: real("baseline_engagement_rate"),
+    // Consecutive refreshes in which the source returned nothing for this post (BR-CO-1)
+    misses: integer("misses").notNull(),
+    unavailableAt: integer("unavailable_at"),
+    unavailableReason: text("unavailable_reason"),
+    addedAt: integer("added_at").notNull(),
+  },
+  (t) => [uniqueIndex("campaign_posts_uq").on(t.campaignId, t.contentId), index("campaign_posts_campaign_idx").on(t.campaignId)],
+);
+
+// One per refresh: which platforms were asked for and which have answered, so the digest runs once all are in
+export const campaignRefreshes = sqliteTable(
+  "campaign_refreshes",
+  {
+    id: text("id").primaryKey(),
+    campaignId: text("campaign_id")
+      .notNull()
+      .references(() => campaigns.id),
+    trigger: text("trigger", { enum: ["schedule", "manual", "registration"] }).notNull(),
+    platforms: text("platforms", { mode: "json" }).$type<string[]>().notNull(),
+    done: text("done", { mode: "json" }).$type<string[]>().notNull(),
+    failed: text("failed", { mode: "json" }).$type<{ platform: string; error: string }[]>().notNull(),
+    status: text("status", { enum: ["running", "done"] }).notNull(),
+    digestRunId: text("digest_run_id"),
+    requestedBy: text("requested_by").notNull(),
+    startedAt: integer("started_at").notNull(),
+    finishedAt: integer("finished_at"),
+  },
+  (t) => [index("campaign_refreshes_campaign_idx").on(t.campaignId, t.startedAt)],
+);
+
+// One per digest run (runs.product = "optimization"). The deterministic part never depends on the model (AC-CO-4).
+export const campaignDigests = sqliteTable(
+  "campaign_digests",
+  {
+    runId: text("run_id")
+      .primaryKey()
+      .references(() => runs.id),
+    campaignId: text("campaign_id")
+      .notNull()
+      .references(() => campaigns.id),
+    refreshId: text("refresh_id"),
+    deltas: text("deltas", { mode: "json" }).$type<Record<string, unknown>>().notNull(),
+    narrative: text("narrative", { mode: "json" }).$type<Record<string, unknown> | null>(),
+    freshness: text("freshness", { mode: "json" }).$type<Record<string, unknown>>().notNull(),
+    flags: text("flags", { mode: "json" }).$type<string[]>().notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("campaign_digests_campaign_idx").on(t.campaignId, t.createdAt)],
+);
+
+// FR-CO-6: notes and actions a planner attaches to a recommendation
+export const campaignActions = sqliteTable(
+  "campaign_actions",
+  {
+    id: text("id").primaryKey(),
+    campaignId: text("campaign_id")
+      .notNull()
+      .references(() => campaigns.id),
+    digestRunId: text("digest_run_id"),
+    recommendation: integer("recommendation"),
+    note: text("note").notNull(),
+    actor: text("actor").notNull(),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [index("campaign_actions_campaign_idx").on(t.campaignId, t.createdAt)],
+);
+
 // Nothing fails silently: failed items land here with a reason (BR-CORE-1, FR-MX-8)
 export const deadLetters = sqliteTable(
   "dead_letters",
@@ -286,7 +396,7 @@ export const apifyRuns = sqliteTable(
   {
     id: text("id").primaryKey(),
     actor: text("actor").notNull(),
-    purpose: text("purpose", { enum: ["profile", "discovery"] }).notNull(),
+    purpose: text("purpose", { enum: ["profile", "discovery", "posts"] }).notNull(),
     inputSummary: text("input_summary").notNull(),
     apifyRunId: text("apify_run_id"),
     status: text("status").notNull(),

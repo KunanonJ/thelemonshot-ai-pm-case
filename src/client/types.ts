@@ -187,3 +187,129 @@ export type ProposalDetail = {
 };
 
 export type AttachableShortlist = { id: string; status: string; createdAt: number; reviewedAt: number | null; brief: Brief | null; shortlisted: number | null; sampleData: boolean };
+
+// ---------- ③ Campaign Optimization ----------
+
+export type Delta = { value: number; reference: number; abs: number; pct: number };
+
+export type PostDelta = {
+  postId: string;
+  creatorId: string;
+  creatorName: string;
+  platform: string;
+  url: string;
+  state: "tracking" | "missing" | "unavailable";
+  unavailableReason: string | null;
+  latest: { views: number | null; likes: number | null; comments: number | null; shares: number | null; er: number | null; fetchedAt: number } | null;
+  notReported: string[];
+  vsBaseline: { views: Delta | null; er: Delta | null };
+  vsPeer: { views: Delta | null; er: Delta | null };
+  trend: "rising" | "steady" | "falling" | "too_early";
+  rankPct: number | null;
+};
+
+export type CreatorDelta = {
+  creatorId: string;
+  creatorName: string;
+  posts: number;
+  views: number | null;
+  baselineViews: number | null;
+  medianEr: number | null;
+  vsBaseline: Delta | null;
+  vsPeer: Delta | null;
+};
+
+export type Verdict = { kind: "ahead" | "on_track" | "behind" | "no_baseline" | "no_data"; text: string };
+
+export type DigestDeltas = {
+  version: string;
+  computedAt: number;
+  baselinesSet: boolean;
+  campaignMedianEr: number | null;
+  posts: PostDelta[];
+  creators: CreatorDelta[];
+  verdict: Verdict;
+  winners: string[];
+  losers: string[];
+  unavailable: string[];
+  missing: string[];
+};
+
+export type Recommendation = { action: string; targetId: string; delta: string; text: string; motivating: Delta | string | null };
+export type Narrative = { headline: string; hypotheses: { text: string; refs: string[] }[]; recommendations: Recommendation[] };
+
+export type CampaignAction = { id: string; digestRunId: string | null; recommendation: number | null; note: string; actor: string; createdAt: number };
+
+export type CampaignRefresh = {
+  id: string;
+  trigger: string;
+  platforms: string[];
+  done: string[];
+  failed: { platform: string; error: string }[];
+  status: "running" | "done";
+  digestRunId: string | null;
+  startedAt: number;
+  finishedAt: number | null;
+};
+
+export type OutcomeRow = {
+  creatorId: string;
+  creatorName: string;
+  posts: number;
+  views: number | null;
+  baselineViews: number | null;
+  medianEr: number | null;
+  peerMedianEr: number | null;
+  outcomeScore: number | null;
+};
+
+export type WriteBack = {
+  runId: string;
+  outcomeVersion: string;
+  historyVersion: string;
+  creators: { creatorId: string; outcomeScore: number; before: number | null; after: number | null }[];
+  unscored: string[];
+};
+
+export type CampaignSummary = {
+  id: string;
+  name: string;
+  brand: string;
+  status: "active" | "closed" | "archived";
+  startsAt: number;
+  endsAt: number;
+  lastRefreshAt: number | null;
+  createdAt: number;
+  posts: number;
+  unavailable: number;
+  latestDigest: { runId: string; createdAt: number; status: string } | null;
+};
+
+export type CampaignDetail = CampaignSummary & {
+  scope: string;
+  sampleData: boolean;
+  matrixRunId: string | null;
+  matrixRun: { id: string; status: string; brand: string | null } | null;
+  deltas: DigestDeltas;
+  refreshes: CampaignRefresh[];
+  digests: { runId: string; createdAt: number; flags: string[]; status: string; reviewedAt: number | null; verdict: Verdict | null }[];
+  actions: CampaignAction[];
+  outcome: { rows: OutcomeRow[]; writeBack: WriteBack } | null;
+  closedAt: number | null;
+};
+
+export type CampaignDigest = {
+  runId: string;
+  campaignId: string;
+  refreshId: string | null;
+  scope: string;
+  status: string;
+  reviewedAt: number | null;
+  llmFailure: string | null;
+  deltas: DigestDeltas;
+  narrative: Narrative | null;
+  freshness: { refreshStartedAt: number | null; refreshFinishedAt: number | null; lastData: Record<string, number>; failed: { platform: string; error: string }[] };
+  flags: string[];
+  createdAt: number;
+  actions: CampaignAction[];
+};

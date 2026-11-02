@@ -1,7 +1,7 @@
 import type { z } from "zod";
 import { getDb } from "./db/client";
 import { llmCalls, type Product } from "./db/schema";
-import { readSecret, errorMessage } from "./env";
+import { errorMessage, localOverride, readSecret } from "./env";
 import { fetchWithRetry, isTimeout } from "./http";
 import { newId } from "./util";
 
@@ -107,12 +107,7 @@ export async function callJson<T>(env: Env, req: JsonCallRequest<T>): Promise<Ll
   return { ok: true, data: validated.data, model };
 }
 
-// Local end-to-end tests only: LLM_CHAT_URL in .dev.vars points the gateway at a mock on localhost.
-// Any other value is ignored, so it can't redirect prompts anywhere in production.
-function chatUrl(env: Env): string {
-  const override = (env as unknown as Record<string, unknown>).LLM_CHAT_URL;
-  return typeof override === "string" && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(override) ? override : CHAT_URL;
-}
+const chatUrl = (env: Env) => localOverride(env, "LLM_CHAT_URL", CHAT_URL);
 
 type Usage = { prompt_tokens?: number; completion_tokens?: number };
 

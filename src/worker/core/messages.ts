@@ -7,7 +7,7 @@ export type EnrichMessage = { kind: "enrich"; creatorIds: string[]; reason: Enri
 
 export type ApifyPollMessage = {
   kind: "apify-poll";
-  purpose: "profile" | "discovery";
+  purpose: "profile" | "discovery" | "posts";
   platform: Exclude<Platform, "youtube">;
   localRunId: string;
   apifyRunId: string;
@@ -16,7 +16,13 @@ export type ApifyPollMessage = {
   category?: string;
   maxNew?: number;
   requestedBy?: string;
+  // posts only: the ③ campaign refresh this run belongs to
+  refreshId?: string;
 };
+
+// ③: build a digest once every platform in a refresh has answered, and close refreshes that never do
+export type CampaignDigestMessage = { kind: "campaign-digest"; campaignId: string; refreshId: string };
+export type CampaignRefreshTimeoutMessage = { kind: "campaign-refresh-timeout"; refreshId: string };
 
 export type MatrixRunMessage = { kind: "matrix-run"; runId: string };
 
@@ -33,4 +39,11 @@ export type ProposalSectionMessage = {
   waitedMs?: number;
 };
 
-export type QueueMessage = Phase0Message | EnrichMessage | ApifyPollMessage | MatrixRunMessage | ProposalSectionMessage;
+export type QueueMessage =
+  | Phase0Message
+  | EnrichMessage
+  | ApifyPollMessage
+  | MatrixRunMessage
+  | ProposalSectionMessage
+  | CampaignDigestMessage
+  | CampaignRefreshTimeoutMessage;

@@ -1,10 +1,10 @@
-import { readSecret } from "../env";
+import { localOverride, readSecret } from "../env";
 import { fetchWithRetry } from "../http";
 import { normaliseYouTube, type NormalisedProfile } from "./normalise";
 
 // YouTube Data API v3, quota-aware (FR-CORE-11): channel by handle, then its uploads playlist, then
 // video statistics. 1 unit per call; search.list is never used in refresh paths (capped at 100 calls a day).
-const YT_API = "https://www.googleapis.com/youtube/v3";
+const ytApi = (env: Env) => localOverride(env, "YOUTUBE_API_URL", "https://www.googleapis.com/youtube/v3");
 const RECENT_VIDEOS = 12;
 
 export type YouTubeResult = { profile: NormalisedProfile; raw: unknown } | { error: string };
@@ -13,7 +13,7 @@ export async function fetchYouTubeProfile(env: Env, handle: string): Promise<You
   const key = readSecret(env, "YOUTUBE_API_KEY");
   if (!key) return { error: "YOUTUBE_API_KEY is not set" };
   const q = (path: string, params: Record<string, string>) =>
-    fetchWithRetry(`${YT_API}/${path}?${new URLSearchParams({ ...params, key }).toString()}`);
+    fetchWithRetry(`${ytApi(env)}/${path}?${new URLSearchParams({ ...params, key }).toString()}`);
 
   // Error messages never include the request URL, because it carries the key
   const chRes = await q("channels", { part: "snippet,statistics,contentDetails", forHandle: handle.replace(/^@?/, "@") });
@@ -37,4 +37,28 @@ export async function fetchYouTubeProfile(env: Env, handle: string): Promise<You
   }
   const profile = normaliseYouTube(handle, channel, videos);
   return profile ? { profile, raw: { channel, videos } } : { error: "unrecognised channel payload" };
+}
+
+// ③ post refresh: statistics for specific videos, 1 unit per call of up to 50 IDs. A video missing from
+// the response is deleted or private (BR-CO-1).
+export type YouTubeVideoStats = { id: string; views: number | null; likes: number | null; comments: number | null };
+
+export async function fetchYouTubeVideos(env: Env, ids: string[]): Promise<{ videos: YouTubeVideoStats[]; raw: unknown[] } | { error: string }> {
+  const key = readSecret(env, "YOUTUBE_API_KEY");
+  if (!key) return { error: "YOUTUBE_API_KEY is not set" };
+  const videos: YouTubeVideoStats[] = [];
+  const raw: unknown[] = [];
+  for (let i = 0; i < ids.length; i += 50) {
+    const params = new URLSearchParams({ part: "statistics,status", id: ids.slice(i, i + 50).join(","), key });
+    const res = await fetchWithRetry(`${ytApi(env)}/videos?${params.toString()}`);
+    if (!res.ok) return { error: `videos.list returned HTTP ${res.status}` };
+    const items = ((await res.json()) as { items?: { id?: string; statistics?: Record<string, string | undefined> }[] }).items ?? [];
+    for (const item of items) {
+      if (!item.id) continue;
+      raw.push(item);
+      const n = (v: string | undefined) => (v !== undefined && Number.isFinite(Number(v)) ? Number(v) : null);
+      videos.push({ id: item.id, views: n(item.statistics?.viewCount), likes: n(item.statistics?.likeCount), comments: n(item.statistics?.commentCount) });
+    }
+  }
+  return { videos, raw };
 }

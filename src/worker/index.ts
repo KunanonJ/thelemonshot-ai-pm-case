@@ -5,6 +5,9 @@ import { errorMessage, readSecret } from "./core/env";
 import type { QueueMessage } from "./core/messages";
 import { phase0, pollApifyRun, recordEcho, runPhase0Auto } from "./phase0";
 import { executeMatrixRun } from "./products/matrix/pipeline";
+import { handleCampaignDigest } from "./products/optimization/digest";
+import { handleCampaignPostsPoll, handleRefreshTimeout, runDueRefreshes } from "./products/optimization/refresh";
+import { campaignRoutes } from "./products/optimization/routes";
 import { matrixRoutes } from "./products/matrix/routes";
 import { handleProposalSection } from "./products/proposal/pipeline";
 import { proposalRoutes } from "./products/proposal/routes";
@@ -39,6 +42,7 @@ app.use("/api/*", requireAuth);
 app.get("/api/me", (c) => c.json({ userId: c.get("userId"), role: c.get("role") }));
 app.route("/api/matrix", matrixRoutes);
 app.route("/api/proposals", proposalRoutes);
+app.route("/api/campaigns", campaignRoutes);
 app.route("/api/creators", creatorRoutes);
 app.route("/api/admin/phase0", phase0);
 app.route("/api/admin", adminRoutes);
@@ -68,13 +72,20 @@ export default {
             await handleEnrich(env, body);
             break;
           case "apify-poll":
-            await handleApifyPoll(env, body);
+            if (body.purpose === "posts") await handleCampaignPostsPoll(env, body);
+            else await handleApifyPoll(env, body);
             break;
           case "matrix-run":
             await executeMatrixRun(env, body.runId);
             break;
           case "proposal-section":
             await handleProposalSection(env, body);
+            break;
+          case "campaign-digest":
+            await handleCampaignDigest(env, body);
+            break;
+          case "campaign-refresh-timeout":
+            await handleRefreshTimeout(env, body);
             break;
         }
         message.ack();
@@ -89,5 +100,6 @@ export default {
     await env.CONFIG.put("cron:last", new Date().toISOString());
     await runPhase0Auto(env);
     await sweepStale(env);
+    await runDueRefreshes(env);
   },
 } satisfies ExportedHandler<Env, QueueMessage>;
