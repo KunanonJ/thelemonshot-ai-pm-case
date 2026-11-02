@@ -13,6 +13,8 @@ import { handleProposalSection } from "./products/proposal/pipeline";
 import { proposalRoutes } from "./products/proposal/routes";
 import { rmnPublicRoutes } from "./products/rmn/store";
 import { rmnRoutes } from "./products/rmn/routes";
+import { handleTrendBrief, handleTrendPoll, handleTrendPullTimeout } from "./products/trends/pipeline";
+import { trendRoutes } from "./products/trends/routes";
 import { adminRoutes } from "./routes/admin";
 import { creatorRoutes } from "./routes/creators";
 
@@ -48,6 +50,7 @@ app.get("/api/me", (c) => c.json({ userId: c.get("userId"), role: c.get("role") 
 app.route("/api/matrix", matrixRoutes);
 app.route("/api/proposals", proposalRoutes);
 app.route("/api/campaigns", campaignRoutes);
+app.route("/api/trends", trendRoutes);
 app.route("/api/creators", creatorRoutes);
 app.route("/api/rmn", rmnRoutes);
 app.route("/api/admin/phase0", phase0);
@@ -92,6 +95,15 @@ export default {
             break;
           case "campaign-refresh-timeout":
             await handleRefreshTimeout(env, body);
+            break;
+          case "trend-poll":
+            await handleTrendPoll(env, body);
+            break;
+          case "trend-pull-timeout":
+            await handleTrendPullTimeout(env, body);
+            break;
+          case "trend-brief":
+            await handleTrendBrief(env, body);
             break;
         }
         message.ack();

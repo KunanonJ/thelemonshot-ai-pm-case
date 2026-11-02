@@ -12,6 +12,7 @@ import { loadProposalDoc, type ProposalDoc } from "./document";
 import { ATTACHABLE_STATUSES } from "./evidence";
 import { lintContent } from "./guard";
 import { cite, createProposalRun, MAX_ALTERNATIVES, ProposalInputError, proposalFlags, saveVersions, sectionMessage } from "./pipeline";
+import { trendAttachments } from "../trends/schema";
 import { renderProposalHtml } from "./render-html";
 import { buildProposalPptx } from "./render-pptx";
 import { budgetLine, CONTENT_SCHEMAS, FIELD_SPECS, SECTION_KEYS, TEMPLATES, timelineLine, type SectionKey } from "./templates";
@@ -132,6 +133,7 @@ function view(doc: ProposalDoc) {
     evidence: doc.evidence,
     assumptions: doc.assumptions,
     sampleData: doc.sampleData,
+    trends: doc.trends,
   };
 }
 
@@ -316,6 +318,34 @@ proposalRoutes.post("/runs/:id/review", requireRole("admin", "member"), async (c
     }),
   ]);
   return c.json({ ok: true });
+});
+
+// AC-TM-2: an approved ② trend brief joins this proposal's assumptions. Only a draft takes attachments, so approved content stays frozen.
+const trendAttachSchema = z.object({ trendRunId: z.string().min(1) });
+
+proposalRoutes.post("/runs/:id/trends", requireRole("admin", "member"), async (c) => {
+  const db = getDb(c.env);
+  const id = c.req.param("id");
+  const [run] = await db.select().from(runs).where(eq(runs.id, id));
+  if (!run || run.product !== "proposal") return c.json({ error: "not_found" }, 404);
+  if (run.status !== "draft") return c.json({ error: "run_not_in_draft" }, 409);
+  const body = trendAttachSchema.safeParse(await c.req.json().catch(() => ({})));
+  if (!body.success) return c.json({ error: "invalid_request" }, 400);
+  const [trend] = await db.select().from(runs).where(eq(runs.id, body.data.trendRunId));
+  if (!trend || trend.product !== "trends") return c.json({ error: "trend_not_found" }, 404);
+  // Human review gate (HR-4): only an approved brief can reach a proposal
+  if (trend.status !== "approved") return c.json({ error: "trend_not_approved" }, 409);
+  const [existing] = await db
+    .select({ trendRunId: trendAttachments.trendRunId })
+    .from(trendAttachments)
+    .where(and(eq(trendAttachments.proposalRunId, id), eq(trendAttachments.trendRunId, trend.id)));
+  if (existing) return c.json({ error: "trend_already_attached" }, 409);
+  const now = Date.now();
+  await db.batch([
+    db.insert(trendAttachments).values({ proposalRunId: id, trendRunId: trend.id, attachedBy: c.get("userId"), attachedAt: now }),
+    db.insert(runLogs).values({ id: newId(), runId: id, kind: "attach", payload: { trendRunId: trend.id, kind: "trend" }, actor: c.get("userId"), createdAt: now }),
+  ]);
+  return c.json({ ok: true }, 201);
 });
 
 // A draft can be previewed at any time; it says it is a draft

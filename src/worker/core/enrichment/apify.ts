@@ -18,9 +18,10 @@ export const ACTORS = {
   tiktokPosts: "clockworks~tiktok-scraper",
 } as const;
 
-export type ApifyPurpose = "profile" | "discovery" | "posts";
+export type ApifyPurpose = "profile" | "discovery" | "posts" | "trends";
 
-export type ApifyRunState = { status: string; datasetId: string | null };
+// usageUsd is the run's dollar cost as Apify reports it (usageTotalUsd); null when Apify reports none (FR-TM-4)
+export type ApifyRunState = { status: string; datasetId: string | null; usageUsd: number | null };
 
 export class ApifyNotConfigured extends Error {
   constructor() {
@@ -70,8 +71,12 @@ export async function getActorRun(env: Env, apifyRunId: string, waitForFinishSec
     { timeoutMs: (waitForFinishSec + 15) * 1000 },
   );
   if (!res.ok) throw new Error(`Apify run lookup failed: HTTP ${res.status}`);
-  const run = ((await res.json()) as { data: { status: string; defaultDatasetId?: string } }).data;
-  return { status: run.status, datasetId: run.defaultDatasetId ?? null };
+  const run = ((await res.json()) as { data: { status: string; defaultDatasetId?: string; usageTotalUsd?: number | null } }).data;
+  return {
+    status: run.status,
+    datasetId: run.defaultDatasetId ?? null,
+    usageUsd: typeof run.usageTotalUsd === "number" ? run.usageTotalUsd : null,
+  };
 }
 
 export async function getDatasetItems(env: Env, datasetId: string, limit: number): Promise<unknown[]> {

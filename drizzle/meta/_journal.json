@@ -29,6 +29,13 @@
       "when": 1793627178620,
       "tag": "0003_rmn",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1793627793499,
+      "tag": "0004_trends",
+      "breakpoints": true
     }
   ]
 }

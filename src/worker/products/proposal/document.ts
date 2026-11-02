@@ -6,6 +6,7 @@ import { PROMPT_VERSION } from "./contract";
 import { loadShortlist, snapshotRange, type Evidence, type Shortlist } from "./evidence";
 import { proposalFlags, type ProposalFlags } from "./pipeline";
 import { budgetLine, timelineLine, TEMPLATES, type SectionKey, type TemplateDef } from "./templates";
+import { loadAttachedTrends, type AttachedTrend } from "../trends/attach";
 
 type VersionRow = typeof proposalVersions.$inferSelect;
 
@@ -31,6 +32,8 @@ export type ProposalDoc = {
   evidence: Record<string, Evidence>;
   assumptions: string[];
   sampleData: boolean;
+  // AC-TM-2: approved ② trend briefs attached to this proposal
+  trends: AttachedTrend[];
 };
 
 export async function loadProposalDoc(db: Db, runId: string): Promise<ProposalDoc | null> {
@@ -83,9 +86,11 @@ export async function loadProposalDoc(db: Db, runId: string): Promise<ProposalDo
     .orderBy(desc(llmCalls.createdAt))
     .limit(1);
   const sampleData = Object.values(evidence).some((e) => e.isSample);
+  const trends = await loadAttachedTrends(db, runId);
   const assumptions = buildAssumptions({
     brief,
     template,
+    trends,
     shortlist: shortlist
       ? { id: shortlist.run.id, status: shortlist.run.status, reviewedAt: shortlist.run.reviewedAt, range: snapshotRange(cited.length ? cited : shortlist.picks) }
       : null,
@@ -93,7 +98,7 @@ export async function loadProposalDoc(db: Db, runId: string): Promise<ProposalDo
     model: llm?.model ?? null,
     sampleData,
   });
-  return { run: row.run, brief, template, flags, sections, shortlist, evidence, assumptions, sampleData };
+  return { run: row.run, brief, template, flags, sections, shortlist, evidence, assumptions, sampleData, trends };
 }
 
 export function fmtDate(ms: number): string {
@@ -110,6 +115,7 @@ export function buildAssumptions(i: {
   attached: boolean;
   model: string | null;
   sampleData: boolean;
+  trends?: AttachedTrend[];
 }): string[] {
   const b = i.brief;
   const lines = [
@@ -127,6 +133,13 @@ export function buildAssumptions(i: {
     lines.push(`Creator shortlist: Creator Matrix run ${i.shortlist.id.slice(0, 8)}, ${reviewed}.${taken}`);
   } else {
     lines.push(i.attached ? "Creator shortlist: attached but no longer available." : "Creator shortlist: none attached. The creator section is left empty on purpose and no creators are named.");
+  }
+  // AC-TM-2: each attached trend brief is named here, with its within-sample scope
+  for (const t of i.trends ?? []) {
+    const approved = t.approvedAt ? `approved ${fmtDate(t.approvedAt)}` : "approved";
+    lines.push(
+      `Trend brief ${t.runId.slice(0, 8)}, ${approved}: ${t.uniquePosts} unique public posts pulled for ${t.terms.join(", ") || "no terms"}. ${t.themeCount} themes, ${t.weakThemes} marked weak signal and ${t.risingThemes} rising within the pull. Trend figures describe these posts only, not the platforms as a whole.`,
+    );
   }
   lines.push("Figures: every figure comes from the brief, the shortlist data or the template. Anything else is marked TBC and is to be agreed with the client.");
   if (i.sampleData) lines.push("Sample data: the creator profiles are public profiles used for demonstration, not an agency database.");

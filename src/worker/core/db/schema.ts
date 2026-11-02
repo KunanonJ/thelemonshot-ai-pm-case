@@ -396,7 +396,7 @@ export const apifyRuns = sqliteTable(
   {
     id: text("id").primaryKey(),
     actor: text("actor").notNull(),
-    purpose: text("purpose", { enum: ["profile", "discovery", "posts"] }).notNull(),
+    purpose: text("purpose", { enum: ["profile", "discovery", "posts", "trends"] }).notNull(),
     inputSummary: text("input_summary").notNull(),
     apifyRunId: text("apify_run_id"),
     status: text("status").notNull(),

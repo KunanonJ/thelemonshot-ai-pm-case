@@ -183,6 +183,7 @@ export type ProposalDetail = {
   evidence: Record<string, Evidence>;
   assumptions: string[];
   sampleData: boolean;
+  trends: AttachedTrend[];
   logs: { id: string; kind: string; payload: Record<string, unknown>; actor: string; createdAt: number }[];
 };
 
@@ -361,3 +362,126 @@ export type RmnDashboard = {
 };
 
 export type RmnCreated = { id: string; links: { linkId: string; creatorId: string; creatorName: string; variant: string | null; url: string }[] };
+
+// ---------- ② Trend Monitoring ----------
+
+export type TrendPlatform = "instagram" | "tiktok";
+export type TrendTermKind = "hashtag" | "keyword";
+
+export type TrendWatchTerm = {
+  id: string;
+  term: string;
+  kind: TrendTermKind;
+  platforms: TrendPlatform[];
+  category: string;
+  postCap: number;
+  active: boolean;
+  createdAt: number;
+  createdBy: string;
+};
+
+export type TrendRunSummary = {
+  runId: string;
+  status: string;
+  pullStatus: string;
+  createdAt: number;
+  finishedAt: number | null;
+  reviewedAt: number | null;
+  labels: string[];
+  termRuns: number;
+  failedRuns: number;
+  uniquePosts: number | null;
+  themes: number | null;
+  weakThemes: number | null;
+  usageUsd: number | null;
+};
+
+export type TrendPullTermRow = {
+  id: string;
+  label: string;
+  category: string;
+  kind: TrendTermKind;
+  platform: TrendPlatform;
+  status: "running" | "ok" | "failed";
+  postCap: number;
+  postCount: number | null;
+  itemCount: number | null;
+  usageUsd: number | null;
+  note: string | null;
+  error: string | null;
+  apifyStatus: string | null;
+  apifyRunId: string | null;
+  finishedAt: number | null;
+};
+
+export type TrendSourcePost = { postId: string; platform: string; url: string; handle: string | null; postedAt: number | null };
+export type TrendPitchAngle = { category: string; angle: string; source: "model" | "template" };
+
+export type TrendThemeView = {
+  id: string;
+  seedTag: string;
+  tags: string[];
+  name: string;
+  summary: string;
+  postCount: number;
+  weakSignal: boolean;
+  rising: boolean;
+  categories: string[];
+  platforms: string[];
+  stats: { shareOfPostsPct: number; datedPosts: number; recentPosts: number; recentSharePct: number | null; topThreeEngagementSharePct: number | null };
+  pitchAngles: TrendPitchAngle[];
+  sources: TrendSourcePost[];
+};
+
+export type TrendExemplarView = { postId: string; themeId: string; platform: string; url: string; handle: string | null; postedAt: number | null; engagement: number | null };
+export type TrendSourceNote = { level: "info" | "warning"; pullTermId: string | null; text: string };
+
+export type TrendSampleView = {
+  hits: number;
+  uniquePosts: number;
+  duplicatesRemoved: number;
+  postsByPlatform: Record<string, number>;
+  otherPosts: number;
+  window: { from: number; to: number } | null;
+  termRuns: number;
+  zeroSignalRuns: string[];
+  failedRuns: string[];
+};
+
+export type TrendRunDetail = {
+  scope: string;
+  runId: string;
+  status: string;
+  pullStatus: string;
+  createdAt: number;
+  finishedAt: number | null;
+  reviewedAt: number | null;
+  reviewedBy: string | null;
+  createdBy: string;
+  flags: Record<string, unknown>;
+  terms: TrendPullTermRow[];
+  usageUsd: number | null;
+  brief: {
+    runId: string;
+    promptVersion: string;
+    createdAt: number;
+    sample: TrendSampleView;
+    themes: TrendThemeView[];
+    exemplars: TrendExemplarView[];
+    sources: TrendSourceNote[];
+    flags: string[];
+  } | null;
+  logs: { id: string; kind: string; payload: Record<string, unknown>; actor: string; createdAt: number }[];
+  attachedProposals: string[];
+};
+
+// An approved trend brief as a proposal shows it (AC-TM-2)
+export type AttachedTrend = {
+  runId: string;
+  approvedAt: number | null;
+  terms: string[];
+  uniquePosts: number;
+  themeCount: number;
+  weakThemes: number;
+  risingThemes: number;
+};

@@ -18,6 +18,8 @@ import { RmnCampaignDetail } from "./pages/RmnCampaignDetail";
 import { RmnHome } from "./pages/RmnHome";
 import { RunDetail } from "./pages/RunDetail";
 import { System } from "./pages/System";
+import { TrendDetail } from "./pages/TrendDetail";
+import { TrendsHome } from "./pages/TrendsHome";
 import type { Role } from "./types";
 
 export function App() {
@@ -85,5 +87,8 @@ function SignedIn() {
   if (rmnCampaign && rmnCampaign.id !== "new") return <RmnCampaignDetail role={role} id={rmnCampaign.id!} />;
   if (path === "/creators") return <Creators role={role} />;
   if (path === "/system" && role === "admin") return <System role={role} />;
+  if (path === "/trends") return <TrendsHome role={role} />;
+  const trend = matchPath("/trends/:id", path);
+  if (trend) return <TrendDetail role={role} id={trend.id!} />;
   return <MatrixHome role={role} />;
 }
