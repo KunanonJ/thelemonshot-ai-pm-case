@@ -2,9 +2,9 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { requireRole, type AppEnv } from "../../core/auth";
-import { getDb } from "../../core/db/client";
+import { getDb, isUniqueViolation } from "../../core/db/client";
 import { briefs, proposalSections, proposalVersions, runLogs, runs } from "../../core/db/schema";
-import { errorMessage } from "../../core/env";
+import { QueueUnavailable } from "../../core/messages";
 import { newId } from "../../core/util";
 import { proposalBriefSchema } from "./brief";
 import { PROMPT_VERSION } from "./contract";
@@ -18,6 +18,8 @@ import { buildProposalPptx } from "./render-pptx";
 import { budgetLine, CONTENT_SCHEMAS, FIELD_SPECS, SECTION_KEYS, TEMPLATES, timelineLine, type SectionKey } from "./templates";
 
 export const proposalRoutes = new Hono<AppEnv>();
+
+type SectionStatus = (typeof proposalSections.$inferSelect)["status"];
 
 const issues = (e: z.ZodError) => e.issues.map((i) => ({ path: i.path.join("."), message: i.message }));
 const asSectionKey = (k: string): SectionKey | null => ((SECTION_KEYS as readonly string[]).includes(k) ? (k as SectionKey) : null);
@@ -199,7 +201,7 @@ proposalRoutes.post("/runs/:id/sections/:key/edit", requireRole("admin", "member
     });
     await logSection(c, doc.run.id, { section: key, action: "edit", versionId });
   } catch (e) {
-    if (/UNIQUE/i.test(errorMessage(e))) return c.json({ error: "version_conflict" }, 409);
+    if (isUniqueViolation(e)) return c.json({ error: "version_conflict" }, 409);
     throw e;
   }
   return c.json({ ok: true });
@@ -218,14 +220,19 @@ proposalRoutes.post("/runs/:id/sections/:key/regenerate", requireRole("admin", "
   const body = regenerateSchema.safeParse(await c.req.json().catch(() => ({})));
   if (!body.success) return c.json({ error: "invalid_request" }, 400);
   if (key === "creator_strategy" && !doc.flags.shortlist) return c.json({ error: "no_shortlist" }, 409);
-  await db
-    .update(proposalSections)
-    .set({ status: "generating", error: null, updatedAt: Date.now() })
-    .where(and(eq(proposalSections.runId, doc.run.id), eq(proposalSections.sectionKey, key)));
+  const where = and(eq(proposalSections.runId, doc.run.id), eq(proposalSections.sectionKey, key));
+  // Marked first, because the job only regenerates a section marked as generating
+  await db.update(proposalSections).set({ status: "generating", error: null, updatedAt: Date.now() }).where(where);
+  try {
+    await c.env.ENRICH_QUEUE.send(
+      sectionMessage(doc.run.id, key, "regenerate", c.get("userId"), { alternatives: body.data.alternatives, ...(body.data.instruction ? { instruction: body.data.instruction } : {}) }),
+    );
+  } catch (e) {
+    // No job will run, so the section goes back to how it was rather than staying busy
+    await db.update(proposalSections).set({ status: ctx.section.status as SectionStatus, error: ctx.section.error, updatedAt: Date.now() }).where(where);
+    throw new QueueUnavailable(e);
+  }
   await logSection(c, doc.run.id, { section: key, action: "regenerate", alternatives: body.data.alternatives, instruction: body.data.instruction ?? null });
-  await c.env.ENRICH_QUEUE.send(
-    sectionMessage(doc.run.id, key, "regenerate", c.get("userId"), { alternatives: body.data.alternatives, ...(body.data.instruction ? { instruction: body.data.instruction } : {}) }),
-  );
   return c.json({ ok: true }, 202);
 });
 
@@ -271,18 +278,25 @@ proposalRoutes.post("/runs/:id/attach", requireRole("admin", "member"), async (c
   if (!m || m.product !== "matrix" || !(ATTACHABLE_STATUSES as readonly string[]).includes(m.status)) return c.json({ error: "shortlist_not_attachable" }, 409);
 
   const now = Date.now();
+  const where = and(eq(proposalSections.runId, doc.run.id), eq(proposalSections.sectionKey, "creator_strategy"));
   await db.batch([
     db
       .update(runs)
       .set({ flags: { ...proposalFlags(doc.run), shortlist: { matrixRunId: m.id, mode: "attached" } } })
       .where(eq(runs.id, doc.run.id)),
-    db
-      .update(proposalSections)
-      .set({ status: "generating", error: null, updatedAt: now })
-      .where(and(eq(proposalSections.runId, doc.run.id), eq(proposalSections.sectionKey, "creator_strategy"))),
-    db.insert(runLogs).values({ id: newId(), runId: doc.run.id, kind: "attach", payload: { matrixRunId: m.id, status: m.status }, actor: c.get("userId"), createdAt: now }),
+    db.update(proposalSections).set({ status: "generating", error: null, updatedAt: now }).where(where),
   ]);
-  await c.env.ENRICH_QUEUE.send(sectionMessage(doc.run.id, "creator_strategy", "regenerate", c.get("userId")));
+  try {
+    await c.env.ENRICH_QUEUE.send(sectionMessage(doc.run.id, "creator_strategy", "regenerate", c.get("userId")));
+  } catch (e) {
+    // Undone as a whole: no shortlist attached and the section as it was, so attaching can simply be tried again
+    await db.batch([
+      db.update(runs).set({ flags: proposalFlags(doc.run) }).where(eq(runs.id, doc.run.id)),
+      db.update(proposalSections).set({ status: ctx.section.status as SectionStatus, error: ctx.section.error, updatedAt: Date.now() }).where(where),
+    ]);
+    throw new QueueUnavailable(e);
+  }
+  await db.insert(runLogs).values({ id: newId(), runId: doc.run.id, kind: "attach", payload: { matrixRunId: m.id, status: m.status }, actor: c.get("userId"), createdAt: now });
   return c.json({ ok: true }, 202);
 });
 

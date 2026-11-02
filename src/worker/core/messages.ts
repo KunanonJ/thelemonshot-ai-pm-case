@@ -72,3 +72,19 @@ export type QueueMessage =
   | DcoCopyMessage
   | DcoVisualMessage
   | DcoVisualPollMessage;
+
+// A send to the queue failed. Routes let it propagate: the API answers 503 queue_unavailable, and the caller has
+// already put back or failed whatever was waiting on the message, so nothing sits in a busy state forever.
+export class QueueUnavailable extends Error {
+  constructor(cause?: unknown) {
+    super("queue_unavailable", { cause });
+  }
+}
+
+export async function enqueue(env: Env, msg: QueueMessage, opts?: QueueSendOptions): Promise<void> {
+  try {
+    await env.ENRICH_QUEUE.send(msg, opts);
+  } catch (e) {
+    throw new QueueUnavailable(e);
+  }
+}

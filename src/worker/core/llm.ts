@@ -22,7 +22,8 @@ export type LlmFailure =
   | "invalid_json"
   | "schema_mismatch"
   | "timeout"
-  | "network";
+  | "network"
+  | "unexpected";
 
 export type LlmResult<T> = { ok: true; data: T; model: string } | { ok: false; reason: LlmFailure; model: string };
 
@@ -41,22 +42,33 @@ export type JsonCallRequest<T> = {
 type Mode = "json_schema" | "prompt_only" | "none";
 
 // FR-CORE-15/16/18: strict JSON in, schema-validated out, every call logged. Callers get a typed
-// failure instead of an exception and switch to their deterministic path.
+// failure instead of an exception and switch to their deterministic path, so nothing may throw out of here.
 export async function callJson<T>(env: Env, req: JsonCallRequest<T>): Promise<LlmResult<T>> {
-  const started = Date.now();
-  const model = (await env.CONFIG.get("llm:model")) ?? DEFAULT_MODEL;
-  let mode: Mode = "none";
-  const fail = async (reason: LlmFailure, error?: string, usage?: Usage): Promise<LlmResult<T>> => {
-    await logCall(env, req, { model, mode, status: reason, started, error, usage });
-    return { ok: false, reason, model };
+  const call: CallState = { model: DEFAULT_MODEL, mode: "none", started: Date.now() };
+  const fail: Fail<T> = async (reason, error, usage) => {
+    await logCall(env, req, { ...call, status: reason, error, usage });
+    return { ok: false, reason, model: call.model };
   };
+  try {
+    return await requestJson(env, req, call, fail);
+  } catch (e) {
+    console.error("llm call failed unexpectedly", { product: req.product, runId: req.runId ?? null, error: errorMessage(e), stack: e instanceof Error ? e.stack : undefined });
+    return fail("unexpected", errorMessage(e));
+  }
+}
 
-  if ((await env.CONFIG.get(FORCE_FAIL_FLAG)) === "1") return fail("forced_failure");
+type CallState = { model: string; mode: Mode; started: number };
+type Fail<T> = (reason: LlmFailure, error?: string, usage?: Usage) => Promise<LlmResult<T>>;
+
+async function requestJson<T>(env: Env, req: JsonCallRequest<T>, call: CallState, fail: Fail<T>): Promise<LlmResult<T>> {
+  // A KV read that fails means the default model and no test switch, not a failed call
+  call.model = (await env.CONFIG.get("llm:model").catch(() => null)) ?? DEFAULT_MODEL;
+  if ((await env.CONFIG.get(FORCE_FAIL_FLAG).catch(() => null)) === "1") return fail("forced_failure");
   const apiKey = readSecret(env, "OPENCODE_API_KEY");
   if (!apiKey) return fail("not_configured");
 
   const base = {
-    model,
+    model: call.model,
     temperature: 0,
     messages: [
       { role: "system", content: req.system },
@@ -80,7 +92,7 @@ export async function callJson<T>(env: Env, req: JsonCallRequest<T>): Promise<Ll
   let res: Response | undefined;
   try {
     for (const attempt of attempts) {
-      mode = attempt.mode;
+      call.mode = attempt.mode;
       res = await fetchWithRetry(
         chatUrl(env),
         {
@@ -97,14 +109,16 @@ export async function callJson<T>(env: Env, req: JsonCallRequest<T>): Promise<Ll
   }
   if (!res || !res.ok) return fail("http_error", `HTTP ${res?.status}: ${(await res?.text().catch(() => "")) ?? ""}`.slice(0, 300));
 
-  const body = (await res.json()) as { model?: string; choices?: { message?: { content?: string } }[]; usage?: Usage };
-  const parsed = parseJsonObject(body.choices?.[0]?.message?.content ?? "");
+  const body = (await res.json().catch(() => null)) as { model?: string; choices?: { message?: { content?: unknown } }[]; usage?: Usage } | null;
+  if (!body || typeof body !== "object") return fail("invalid_json", "The response body wasn't a JSON object");
+  const content = body.choices?.[0]?.message?.content;
+  const parsed = typeof content === "string" ? parseJsonObject(content) : null;
   if (parsed === null) return fail("invalid_json", undefined, body.usage);
   const validated = req.schema.safeParse(parsed);
   if (!validated.success) return fail("schema_mismatch", validated.error.message.slice(0, 300), body.usage);
 
-  await logCall(env, req, { model, mode, status: "ok", started, usage: body.usage });
-  return { ok: true, data: validated.data, model };
+  await logCall(env, req, { ...call, status: "ok", usage: body.usage });
+  return { ok: true, data: validated.data, model: call.model };
 }
 
 const chatUrl = (env: Env) => localOverride(env, "LLM_CHAT_URL", CHAT_URL);
@@ -121,23 +135,28 @@ async function logCall(
   const outputTokens = r.usage?.completion_tokens ?? null;
   const costUsd =
     price && inputTokens !== null && outputTokens !== null ? (inputTokens * price.input + outputTokens * price.output) / 1_000_000 : null;
-  await getDb(env)
-    .insert(llmCalls)
-    .values({
-      id: newId(),
-      product: req.product,
-      promptVersion: req.promptVersion,
-      model: r.model,
-      mode: r.mode,
-      status: r.status,
-      inputTokens,
-      outputTokens,
-      costUsd,
-      latencyMs: Date.now() - r.started,
-      runId: req.runId ?? null,
-      error: r.error ?? null,
-      createdAt: Date.now(),
-    });
+  // Best-effort: a lost log row must not turn a good answer into a failure
+  try {
+    await getDb(env)
+      .insert(llmCalls)
+      .values({
+        id: newId(),
+        product: req.product,
+        promptVersion: req.promptVersion,
+        model: r.model,
+        mode: r.mode,
+        status: r.status,
+        inputTokens,
+        outputTokens,
+        costUsd,
+        latencyMs: Date.now() - r.started,
+        runId: req.runId ?? null,
+        error: r.error ?? null,
+        createdAt: Date.now(),
+      });
+  } catch (e) {
+    console.error("llm call not logged", { product: req.product, runId: req.runId ?? null, status: r.status, costUsd, error: errorMessage(e) });
+  }
 }
 
 export function parseJsonObject(text: string): unknown {

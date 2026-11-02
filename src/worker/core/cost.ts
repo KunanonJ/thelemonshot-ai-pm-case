@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { errorMessage } from "./env";
 
 // NFR-5: external cost over the last seven days against the Operator's weekly threshold. Breaching it raises
 // an alert in the app; it never stops anything. Model costs come from llm_calls, Apify costs from Apify's own
@@ -19,8 +20,17 @@ export type CostSettings = z.infer<typeof costSettingsSchema>;
 
 export async function getCostSettings(env: Env): Promise<CostSettings & { rateSetByOperator: boolean }> {
   const raw = await env.CONFIG.get(SETTINGS_KEY);
-  const parsed = raw ? costSettingsSchema.safeParse(JSON.parse(raw)) : null;
+  const parsed = raw ? costSettingsSchema.safeParse(parseJson(raw)) : null;
   return parsed?.success ? { ...parsed.data, rateSetByOperator: true } : { ...COST_DEFAULTS, rateSetByOperator: false };
+}
+
+// A stored value that isn't JSON reads as "not set", so the defaults apply instead of the cost page failing
+function parseJson(raw: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
 }
 
 export async function setCostSettings(env: Env, settings: CostSettings): Promise<void> {
@@ -51,11 +61,14 @@ export async function weeklyCost(env: Env, now = Date.now()): Promise<WeeklyCost
     env.DB.prepare("SELECT product, SUM(COALESCE(cost_usd, 0)) AS usd FROM llm_calls WHERE created_at >= ?1 GROUP BY product").bind(since).all<{ product: string; usd: number }>(),
     env.DB.prepare("SELECT purpose, SUM(COALESCE(cost_usd, 0)) AS usd FROM apify_runs WHERE started_at >= ?1 GROUP BY purpose").bind(since).all<{ purpose: string; usd: number }>(),
     env.DB.prepare("SELECT COUNT(*) AS n FROM apify_runs WHERE started_at >= ?1 AND cost_usd IS NULL AND status = 'SUCCEEDED'").bind(since).first<{ n: number }>(),
-    // dco_visuals exists once the Phase 5 migration is applied; a missing table counts as none
+    // dco_visuals exists once the Phase 5 migration is applied; only a missing table counts as none
     env.DB.prepare("SELECT COUNT(*) AS n FROM dco_visuals WHERE submitted_at >= ?1")
       .bind(since)
       .first<{ n: number }>()
-      .catch(() => ({ n: 0 })),
+      .catch((e) => {
+        if (/no such table/i.test(errorMessage(e))) return { n: 0 };
+        throw e;
+      }),
     getCostSettings(env),
   ]);
   const byProduct = new Map<string, number>();

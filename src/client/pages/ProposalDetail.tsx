@@ -26,6 +26,7 @@ const ERRORS: Record<string, string> = {
   trend_not_approved: "Only an approved trend brief can be attached.",
   trend_already_attached: "That trend brief is already attached.",
   trend_not_found: "That trend brief no longer exists.",
+  queue_unavailable: "Background work couldn't be scheduled just now. Nothing changed; try again in a minute.",
 };
 
 const slug = (text: string) =>

@@ -50,6 +50,13 @@
       "when": 1793629305341,
       "tag": "0006_cost",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1793632105340,
+      "tag": "0007_error_paths",
+      "breakpoints": true
     }
   ]
 }

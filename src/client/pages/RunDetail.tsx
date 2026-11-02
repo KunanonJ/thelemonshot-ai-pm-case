@@ -102,7 +102,7 @@ export function RunDetail({ role, id, userId }: { role: Role; id: string; userId
               </div>
             </Card>
           )}
-          {r.status === "failed" && <Banner tone="red" title="This run failed">{r.error ?? "Unknown error"}. It is listed under dead letters.</Banner>}
+          {r.status === "failed" && <Banner tone="red" title="This run failed">{r.error ?? "The run stopped before it finished."} It is listed under dead letters.</Banner>}
           {error && <Banner tone="red" title={error} />}
 
           {!inFlight && r.status !== "failed" && (

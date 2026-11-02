@@ -2,9 +2,8 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { requireRole, type AppEnv } from "../../core/auth";
-import { getDb } from "../../core/db/client";
+import { getDb, isUniqueViolation } from "../../core/db/client";
 import { apifyRuns, runLogs, runs } from "../../core/db/schema";
-import { errorMessage } from "../../core/env";
 import { newId } from "../../core/util";
 import { failedTermText } from "./failures";
 import { startTrendPull, sweepStuckTrends, TrendInputError } from "./pipeline";
@@ -52,7 +51,7 @@ trendRoutes.post("/watchlist", requireRole("admin", "member"), async (c) => {
         updatedAt: now,
       });
   } catch (e) {
-    if (/UNIQUE/i.test(errorMessage(e))) return c.json({ error: "term_exists" }, 409);
+    if (isUniqueViolation(e)) return c.json({ error: "term_exists" }, 409);
     throw e;
   }
   return c.json({ id }, 201);

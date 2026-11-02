@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const PLATFORMS = ["instagram", "tiktok", "youtube"] as const;
@@ -117,6 +118,9 @@ export const enrichmentJobs = sqliteTable(
     reason: text("reason", { enum: ["add", "manual", "sweep", "discovery"] }).notNull(),
     apifyRunId: text("apify_run_id"),
     error: text("error"),
+    // A failure that hits every creator at once (a missing or refused key, quota, the source down) is "global":
+    // it says nothing about the creator, so it never dead-letters them or holds them out of the next sweep
+    failureScope: text("failure_scope", { enum: ["global", "handle"] }),
     requestedBy: text("requested_by").notNull(),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
@@ -325,14 +329,19 @@ export const campaignRefreshes = sqliteTable(
     trigger: text("trigger", { enum: ["schedule", "manual", "registration"] }).notNull(),
     platforms: text("platforms", { mode: "json" }).$type<string[]>().notNull(),
     done: text("done", { mode: "json" }).$type<string[]>().notNull(),
-    failed: text("failed", { mode: "json" }).$type<{ platform: string; error: string }[]>().notNull(),
+    // error is a fixed plain sentence for the code (BR-CORE-3); the raw upstream text stays in apify_runs and the log
+    failed: text("failed", { mode: "json" }).$type<{ platform: string; error: string; code?: string }[]>().notNull(),
     status: text("status", { enum: ["running", "done"] }).notNull(),
     digestRunId: text("digest_run_id"),
     requestedBy: text("requested_by").notNull(),
     startedAt: integer("started_at").notNull(),
     finishedAt: integer("finished_at"),
   },
-  (t) => [index("campaign_refreshes_campaign_idx").on(t.campaignId, t.startedAt)],
+  (t) => [
+    index("campaign_refreshes_campaign_idx").on(t.campaignId, t.startedAt),
+    // One refresh in flight per campaign, even when two starts race (finding 20)
+    uniqueIndex("campaign_refreshes_running_uq").on(t.campaignId).where(sql`status = 'running'`),
+  ],
 );
 
 // One per digest run (runs.product = "optimization"). The deterministic part never depends on the model (AC-CO-4).
@@ -352,7 +361,8 @@ export const campaignDigests = sqliteTable(
     flags: text("flags", { mode: "json" }).$type<string[]>().notNull(),
     createdAt: integer("created_at").notNull(),
   },
-  (t) => [index("campaign_digests_campaign_idx").on(t.campaignId, t.createdAt)],
+  // One digest per refresh: a duplicate delivery collides instead of writing a second one (NFR-2)
+  (t) => [index("campaign_digests_campaign_idx").on(t.campaignId, t.createdAt), uniqueIndex("campaign_digests_refresh_uq").on(t.refreshId)],
 );
 
 // FR-CO-6: notes and actions a planner attaches to a recommendation
@@ -418,7 +428,7 @@ export const llmCalls = sqliteTable(
     promptVersion: text("prompt_version").notNull(),
     model: text("model").notNull(),
     mode: text("mode", { enum: ["json_schema", "prompt_only", "none"] }).notNull(),
-    status: text("status", { enum: ["ok", "invalid_json", "schema_mismatch", "http_error", "timeout", "network", "forced_failure", "not_configured"] }).notNull(),
+    status: text("status", { enum: ["ok", "invalid_json", "schema_mismatch", "http_error", "timeout", "network", "forced_failure", "not_configured", "unexpected"] }).notNull(),
     inputTokens: integer("input_tokens"),
     outputTokens: integer("output_tokens"),
     costUsd: real("cost_usd"),

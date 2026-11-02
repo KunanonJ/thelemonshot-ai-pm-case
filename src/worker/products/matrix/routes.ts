@@ -7,10 +7,17 @@ import { briefs, creators, runItems, runLogs, runs } from "../../core/db/schema"
 import { newId } from "../../core/util";
 import { findConflicts, matrixBriefSchema } from "./brief";
 import { toCsv } from "./export";
-import { createMatrixRun } from "./pipeline";
+import { createMatrixRun, RUN_FAILURE_TEXT } from "./pipeline";
 import { COMPONENT_INFO, RULES, SCORING_VERSION, WEIGHT_PROFILES } from "./weights";
 
 export const matrixRoutes = new Hono<AppEnv>();
+
+// BR-CORE-3: a failed run shows its fixed sentence; runs failed before the sentences existed show the general one
+function withPublicError<T extends { status: string; error: string | null; flags: Record<string, unknown> }>(run: T): T {
+  if (run.status !== "failed") return run;
+  const code = run.flags.failure as keyof typeof RUN_FAILURE_TEXT | undefined;
+  return { ...run, error: (code && RUN_FAILURE_TEXT[code]) ?? RUN_FAILURE_TEXT.unexpected };
+}
 
 // "How scoring works" (FR-MX-2): no black box
 matrixRoutes.get("/scoring", (c) => c.json({ version: SCORING_VERSION, weights: WEIGHT_PROFILES, components: COMPONENT_INFO, rules: RULES }));
@@ -45,7 +52,7 @@ matrixRoutes.get("/runs", async (c) => {
     .where(eq(runs.product, "matrix"))
     .orderBy(desc(runs.createdAt))
     .limit(50);
-  return c.json(rows.map((r) => ({ ...r.run, brief: r.fields })));
+  return c.json(rows.map((r) => ({ ...withPublicError(r.run), brief: r.fields })));
 });
 
 matrixRoutes.get("/runs/:id", async (c) => {
@@ -73,7 +80,7 @@ matrixRoutes.get("/runs/:id", async (c) => {
     .from(runLogs)
     .where(and(eq(runLogs.runId, id), inArray(runLogs.kind, ["override", "decision", "export"])))
     .orderBy(runLogs.createdAt);
-  return c.json({ ...row.run, brief: row.fields, items: items.map((i) => ({ ...i.item, creator: i.creator })), logs });
+  return c.json({ ...withPublicError(row.run), brief: row.fields, items: items.map((i) => ({ ...i.item, creator: i.creator })), logs });
 });
 
 // BR-MX-4 / FR-CORE-23: swap a shortlisted creator for an unranked one. Scores never change; only the

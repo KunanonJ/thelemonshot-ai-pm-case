@@ -14,7 +14,26 @@ type Overview = {
   apify: { purpose: string; runs: number; items: number }[];
   runs: { product: string; status: string; runs: number }[];
   openDeadLetters: number;
+  cron: { last: string | null; status: { at: string; failed: { step: string; error: string }[] } | null };
 };
+
+// Plain words for the stuck-work sweep's counts
+const SWEEP_PARTS: Record<string, string> = {
+  matrixRuns: "Matrix runs",
+  proposalSections: "proposal sections",
+  campaignRefreshes: "campaign refreshes",
+  digests: "digests requeued",
+  trends: "trend pulls and runs",
+  dco: "creative slots",
+  enrichmentJobs: "enrichment jobs",
+  apifyRuns: "Apify runs stopped",
+};
+
+function describeSweep(r: Record<string, unknown>): string {
+  const moved = Object.entries(SWEEP_PARTS).flatMap(([k, label]) => (typeof r[k] === "number" && (r[k] as number) > 0 ? [`${r[k]} ${label}`] : []));
+  const failed = Array.isArray(r.failedParts) && r.failedParts.length ? ` Some parts couldn't run: ${(r.failedParts as string[]).map((k) => SWEEP_PARTS[k] ?? k).join(", ")}.` : "";
+  return `${moved.length ? `Settled ${moved.join(", ")}.` : "Nothing was stuck."}${failed}`;
+}
 
 type WeeklyCost = {
   llmUsd: number;
@@ -118,6 +137,55 @@ export function System({ role }: { role: Role }) {
           </Card>
         )}
 
+        {o?.cron && (
+          <Card className="p-4 text-[13px]">
+            <div className="font-semibold">Scheduled jobs</div>
+            <div className="text-neutral-500">Last run finished {o.cron.last ? fmtAgo(Date.parse(o.cron.last)) : "never"}.</div>
+            {o.cron.status?.failed.length ? (
+              <ul className="mt-2 space-y-1 text-red-700">
+                {o.cron.status.failed.map((f) => (
+                  <li key={f.step}>
+                    {f.step}: {f.error}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <div className="text-neutral-500">Every step completed in the last run.</div>
+            )}
+          </Card>
+        )}
+
+        {(o?.failedApifyRuns.length ?? 0) > 0 && (
+          <section>
+            <h2 className="mb-2 text-sm font-semibold">Failed and stuck Apify runs, last 7 days</h2>
+            <div className="mb-2 text-xs text-neutral-500">Stuck means still running well after its poll window; the stuck-work sweep stops it so it doesn't keep billing.</div>
+            <div className="overflow-hidden rounded-lg border border-neutral-200">
+              <table className="w-full">
+                <thead className="border-b border-neutral-200 bg-neutral-50/60">
+                  <tr>
+                    <Th>Actor</Th>
+                    <Th>Purpose</Th>
+                    <Th>Status</Th>
+                    <Th>Error</Th>
+                    <Th className="text-right">Started</Th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-neutral-100">
+                  {o!.failedApifyRuns.map((r, i) => (
+                    <tr key={i}>
+                      <Td>{r.actor}</Td>
+                      <Td>{r.purpose}</Td>
+                      <Td className={r.status === "STUCK" ? "font-medium text-amber-700" : undefined}>{r.status}</Td>
+                      <Td className="text-neutral-600">{r.error}</Td>
+                      <Td className="text-right text-neutral-500">{fmtAgo(r.started_at)}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
         {(o?.failedJobs.length ?? 0) > 0 && (
           <section>
             <h2 className="mb-2 text-sm font-semibold">Failed enrichment, last 7 days</h2>
@@ -213,6 +281,9 @@ export function System({ role }: { role: Role }) {
               onClick={() => void operate("history", "/api/admin/history/recompute", (r) => `Rebuilt history scores for ${r.creators} creators from their outcome records; ${r.changed} changed.`)}
             >
               Rebuild history scores
+            </Button>
+            <Button size="sm" disabled={busy !== null} onClick={() => void operate("sweep", "/api/admin/sweep", describeSweep)}>
+              Settle stuck work
             </Button>
           </div>
           {opsNote && <div className="mt-2 text-xs text-neutral-600">{opsNote}</div>}

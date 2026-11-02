@@ -116,9 +116,11 @@ export function NewProposal({ role }: { role: Role }) {
       setError(
         e instanceof ApiError && e.code === "shortlist_not_attachable"
           ? "That shortlist can't be attached: it failed or was rejected."
-          : issues.length
-            ? issues.map((i) => i.message).join(". ")
-            : "Couldn't start the proposal.",
+          : e instanceof ApiError && e.code === "queue_unavailable"
+            ? "Background work couldn't be scheduled just now. Try again in a minute."
+            : issues.length
+              ? issues.map((i) => i.message).join(". ")
+              : "Couldn't start the proposal.",
       );
       setSubmitting(false);
     }

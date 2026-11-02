@@ -1,9 +1,11 @@
 import { inArray } from "drizzle-orm";
 import { getDb, insertChunked } from "../db/client";
 import { creators } from "../db/schema";
+import { errorMessage } from "../env";
 import type { ApifyPollMessage } from "../messages";
 import { chunk, newId } from "../util";
-import { ACTORS, startActor } from "./apify";
+import { abandonApifyRun, ACTORS, startActor } from "./apify";
+import { classifySourceFailure, type SourceFailure } from "./failures";
 import { discoverFromInstagramPosts, discoverFromTikTokVideos } from "./normalise";
 import { requestEnrichment } from "./service";
 
@@ -32,36 +34,41 @@ export type DiscoveryRequest = {
   maxNewPerPlatform: number;
 };
 
-export async function startDiscovery(env: Env, req: DiscoveryRequest, requestedBy: string): Promise<string[]> {
-  const started: string[] = [];
+// Each platform starts on its own (finding 22): one that fails doesn't take the other down, and the Operator sees
+// a fixed reason per platform. The raw Apify text stays in apify_runs.error and the log.
+export type DiscoveryStart = { platform: "instagram" | "tiktok"; status: "started" } | { platform: "instagram" | "tiktok"; status: "failed"; reason: SourceFailure | "not_queued" };
+
+export async function startDiscovery(env: Env, req: DiscoveryRequest, requestedBy: string): Promise<DiscoveryStart[]> {
   const base = { purpose: "discovery" as const, startedAt: Date.now(), category: req.category, maxNew: req.maxNewPerPlatform, requestedBy };
-  if (req.instagramHashtags.length) {
-    const { localRunId, apifyRunId } = await startActor(
-      env,
-      ACTORS.instagramHashtag,
-      { hashtags: req.instagramHashtags, resultsType: "posts", resultsLimit: req.perHashtag },
-      "discovery",
-      `instagram ${req.category}: #${req.instagramHashtags.join(" #")}`,
-    );
-    await env.ENRICH_QUEUE.send({ kind: "apify-poll", platform: "instagram", localRunId, apifyRunId, ...base } satisfies ApifyPollMessage, {
-      delaySeconds: 45,
-    });
-    started.push(localRunId);
+  const plans = [
+    req.instagramHashtags.length && {
+      platform: "instagram" as const,
+      actor: ACTORS.instagramHashtag,
+      input: { hashtags: req.instagramHashtags, resultsType: "posts", resultsLimit: req.perHashtag },
+      summary: `instagram ${req.category}: #${req.instagramHashtags.join(" #")}`,
+    },
+    req.tiktokHashtags.length && {
+      platform: "tiktok" as const,
+      actor: ACTORS.tiktokSearch,
+      input: { hashtags: req.tiktokHashtags, resultsPerPage: req.perHashtag },
+      summary: `tiktok ${req.category}: #${req.tiktokHashtags.join(" #")}`,
+    },
+  ].filter((p) => p !== 0);
+  const out: DiscoveryStart[] = [];
+  for (const plan of plans) {
+    let started: { localRunId: string; apifyRunId: string } | null = null;
+    try {
+      started = await startActor(env, plan.actor, plan.input, "discovery", plan.summary);
+      await env.ENRICH_QUEUE.send({ kind: "apify-poll", platform: plan.platform, ...started, ...base } satisfies ApifyPollMessage, { delaySeconds: 45 });
+      out.push({ platform: plan.platform, status: "started" });
+    } catch (e) {
+      console.error("discovery not started", { platform: plan.platform, category: req.category, error: errorMessage(e) });
+      // A paid run nothing will poll is stopped, so a retry can't leave two of them billing
+      if (started) await abandonApifyRun(env, started, "Its poll couldn't be queued");
+      out.push({ platform: plan.platform, status: "failed", reason: started ? "not_queued" : classifySourceFailure(e) });
+    }
   }
-  if (req.tiktokHashtags.length) {
-    const { localRunId, apifyRunId } = await startActor(
-      env,
-      ACTORS.tiktokSearch,
-      { hashtags: req.tiktokHashtags, resultsPerPage: req.perHashtag },
-      "discovery",
-      `tiktok ${req.category}: #${req.tiktokHashtags.join(" #")}`,
-    );
-    await env.ENRICH_QUEUE.send({ kind: "apify-poll", platform: "tiktok", localRunId, apifyRunId, ...base } satisfies ApifyPollMessage, {
-      delaySeconds: 45,
-    });
-    started.push(localRunId);
-  }
-  return started;
+  return out;
 }
 
 export async function processDiscoveryResults(env: Env, msg: ApifyPollMessage, items: unknown[]): Promise<void> {

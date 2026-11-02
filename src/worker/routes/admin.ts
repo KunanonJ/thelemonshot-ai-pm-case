@@ -8,12 +8,14 @@ import { requestEnrichment } from "../core/enrichment/service";
 import { DEFAULT_MODEL, FORCE_FAIL_FLAG } from "../core/llm";
 import { recomputeHistory } from "../products/optimization/closing";
 import { RefreshError, runDueRefreshes, startCampaignRefresh } from "../products/optimization/refresh";
-import { sweepStuckWork } from "../sweeper";
+import { parseCronStatus, sweepStuckWork } from "../sweeper";
 
 export const adminRoutes = new Hono<AppEnv>();
 adminRoutes.use("*", requireRole("admin"));
 
 const WEEK_MS = 7 * 86_400_000;
+// Well past the 5-minute poll window: a run still READY or RUNNING after this has nothing polling it (finding 16)
+const APIFY_STUCK_AFTER_MS = 15 * 60_000;
 
 // FR-CORE-24: source freshness, failed jobs, staleness spread, run counts and external cost per product
 adminRoutes.get("/overview", async (c) => {
@@ -41,10 +43,12 @@ adminRoutes.get("/overview", async (c) => {
       .all(),
     db
       .prepare(
-        `SELECT actor, purpose, status, error, started_at FROM apify_runs
-         WHERE started_at >= ?1 AND status NOT IN ('SUCCEEDED', 'READY', 'RUNNING') ORDER BY started_at DESC LIMIT 20`,
+        `SELECT actor, purpose, CASE WHEN status IN ('READY', 'RUNNING') THEN 'STUCK' ELSE status END AS status, error, started_at FROM apify_runs
+         WHERE started_at >= ?1
+           AND (status NOT IN ('SUCCEEDED', 'READY', 'RUNNING') OR (status IN ('READY', 'RUNNING') AND started_at < ?2))
+         ORDER BY started_at DESC LIMIT 20`,
       )
-      .bind(since)
+      .bind(since, Date.now() - APIFY_STUCK_AFTER_MS)
       .all(),
     db
       .prepare(
@@ -69,6 +73,8 @@ adminRoutes.get("/overview", async (c) => {
     apify: apifyRuns.results,
     runs: runsByProduct.results,
     openDeadLetters: openDeadLetters?.open ?? 0,
+    // Admin only, so the raw step errors are shown here and nowhere else (finding 19)
+    cron: { last: await c.env.CONFIG.get("cron:last"), status: parseCronStatus(await c.env.CONFIG.get("cron:status")) },
   });
 });
 
@@ -85,12 +91,10 @@ const discoverySchema = z.object({
 adminRoutes.post("/discovery", async (c) => {
   const parsed = discoverySchema.safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) return c.json({ error: "invalid_discovery", issues: parsed.error.issues.map((i) => i.message) }, 400);
-  try {
-    const runs = await startDiscovery(c.env, parsed.data, c.get("userId"));
-    return c.json({ started: runs.length }, 202);
-  } catch (e) {
-    return c.json({ error: "discovery_failed", message: errorMessage(e).slice(0, 200) }, 502);
-  }
+  const platforms = await startDiscovery(c.env, parsed.data, c.get("userId"));
+  const started = platforms.filter((p) => p.status === "started").length;
+  if (platforms.length && !started) return c.json({ error: "discovery_failed", platforms }, 502);
+  return c.json({ started, platforms }, 202);
 });
 
 // Test switch for AC-MX-3 and AC-CO-4: makes every LLM call fail as if the gateway were down
@@ -132,6 +136,8 @@ adminRoutes.post("/cost/settings", async (c) => {
 // campaign's tracked posts, so no demo step waits on a cold external pull
 const PREWARM_AGE_MS = 12 * 3_600_000;
 const PREWARM_LIMIT = 60;
+// A job pending longer than this is stuck, not in flight, so it doesn't keep its creator out of the pre-warm
+const PENDING_IN_FLIGHT_MS = 45 * 60_000;
 
 adminRoutes.post("/prewarm", async (c) => {
   const cutoff = Date.now() - PREWARM_AGE_MS;
@@ -139,10 +145,10 @@ adminRoutes.post("/prewarm", async (c) => {
     `SELECT c.id FROM creators c
      WHERE c.active = 1 AND (c.instagram IS NOT NULL OR c.tiktok IS NOT NULL OR c.youtube IS NOT NULL)
        AND COALESCE((SELECT MAX(s.fetched_at) FROM stat_snapshots s WHERE s.creator_id = c.id), 0) < ?1
-       AND NOT EXISTS (SELECT 1 FROM enrichment_jobs j WHERE j.creator_id = c.id AND j.status = 'pending')
+       AND NOT EXISTS (SELECT 1 FROM enrichment_jobs j WHERE j.creator_id = c.id AND j.status = 'pending' AND j.updated_at > ?3)
      ORDER BY c.updated_at DESC LIMIT ?2`,
   )
-    .bind(cutoff, PREWARM_LIMIT)
+    .bind(cutoff, PREWARM_LIMIT, Date.now() - PENDING_IN_FLIGHT_MS)
     .all<{ id: string }>();
   const userId = c.get("userId");
   const jobs = results.length ? await requestEnrichment(c.env, results.map((r) => r.id), "manual", userId) : 0;
@@ -154,7 +160,8 @@ adminRoutes.post("/prewarm", async (c) => {
     try {
       if (!(await startCampaignRefresh(c.env, row.id, "manual", userId)).existing) campaigns++;
     } catch (e) {
-      if (!(e instanceof RefreshError)) throw e;
+      // One campaign that can't refresh doesn't stop the rest of the pre-warm
+      if (!(e instanceof RefreshError)) console.error("pre-warm refresh failed", { campaignId: row.id, error: errorMessage(e) });
     }
   }
   return c.json({ creators: results.length, jobs, campaigns, olderThanHours: PREWARM_AGE_MS / 3_600_000 });

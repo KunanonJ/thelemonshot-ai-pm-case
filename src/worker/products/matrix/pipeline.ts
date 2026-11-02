@@ -1,9 +1,9 @@
-import { and, desc, eq, inArray, or } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, or } from "drizzle-orm";
 import { getDb, insertChunked, type Db } from "../../core/db/client";
 import { briefs, contentItems, creators, deadLetters, runItems, runLogs, runs, statSnapshots, type Platform } from "../../core/db/schema";
 import { errorMessage } from "../../core/env";
 import { callJson } from "../../core/llm";
-import type { MatrixRunMessage } from "../../core/messages";
+import { QueueUnavailable, type MatrixRunMessage } from "../../core/messages";
 import { chunk, inputHash, newId, normaliseHandle } from "../../core/util";
 import { findConflicts, matrixBriefSchema, normaliseRef, type MatrixBrief } from "./brief";
 import { buildPrompt, llmJsonSchema, llmOutputSchema, PROMPT_VERSION, splitForContext, toLlmCandidate, validateScores } from "./contract";
@@ -13,6 +13,16 @@ import { RULES, SCORING_VERSION } from "./weights";
 
 const DEDUPE_WINDOW_MS = 2 * 60_000;
 const ID_CHUNK = 90;
+// A delivery that claimed a run and then died is taken over after this, or at once by the message's next delivery
+const CLAIM_LEASE_MS = 10 * 60_000;
+
+// BR-CORE-3: what every role sees on a failed run. The raw error goes to the log and the operator-only dead letter.
+export const RUN_FAILURE_TEXT = {
+  unexpected: "Scoring stopped because of an unexpected error. Start a new run with the same brief.",
+  not_queued: "The run couldn't be queued. Start it again.",
+  stalled: "The run stopped before it finished. Start a new run with the same brief.",
+} as const;
+type RunFailure = keyof typeof RUN_FAILURE_TEXT;
 // If the model leaves out more than this share of candidates, the whole run goes deterministic (BR-MX-2)
 const MAX_MISSING_SHARE = 0.1;
 
@@ -48,23 +58,73 @@ export async function createMatrixRun(env: Env, brief: MatrixBrief, userId: stri
       createdAt: now,
     }),
   ]);
-  await env.ENRICH_QUEUE.send({ kind: "matrix-run", runId } satisfies MatrixRunMessage);
+  try {
+    await env.ENRICH_QUEUE.send({ kind: "matrix-run", runId } satisfies MatrixRunMessage);
+  } catch (e) {
+    // Nothing would ever score it, so the run fails now instead of showing "Queued" forever (and isn't deduped onto)
+    await failRun(db, runId, "not_queued", errorMessage(e));
+    throw new QueueUnavailable(e);
+  }
   return { runId, deduped: false };
 }
 
-export async function executeMatrixRun(env: Env, runId: string): Promise<void> {
+// One delivery at a time scores a run. A claim is a single guarded UPDATE, so two deliveries can't both pass it.
+// A running run is taken over by the next delivery of its message (the earlier one threw or died) or once the
+// lease has passed; the takeover starts clean.
+export async function executeMatrixRun(env: Env, runId: string, delivery = 1): Promise<void> {
   const db = getDb(env);
+  const now = Date.now();
+  const claimed = await env.DB.prepare(
+    `UPDATE runs SET status = 'running', started_at = ?2
+     WHERE id = ?1 AND product = 'matrix'
+       AND (status = 'queued' OR (status = 'running' AND (?3 > 1 OR started_at < ?4)))
+     RETURNING id`,
+  )
+    .bind(runId, now, delivery, now - CLAIM_LEASE_MS)
+    .first<{ id: string }>();
+  if (!claimed) return; // finished, failed, or being scored by another delivery
   const [run] = await db.select().from(runs).where(eq(runs.id, runId));
-  if (!run || run.status !== "queued") return; // a redelivered message does nothing
-  await db.update(runs).set({ status: "running", startedAt: Date.now() }).where(eq(runs.id, runId));
+  if (!run) return;
   try {
+    // Rows a dead delivery left behind; a fresh run has none
+    await db.batch([db.delete(runItems).where(eq(runItems.runId, runId)), db.delete(deadLetters).where(and(eq(deadLetters.runId, runId), eq(deadLetters.kind, "run")))]);
     const [briefRow] = await db.select().from(briefs).where(eq(briefs.id, run.briefId!));
     await scoreRun(env, db, run, matrixBriefSchema.parse(briefRow!.fields));
   } catch (e) {
-    const error = errorMessage(e).slice(0, 300);
-    await db.update(runs).set({ status: "failed", error, finishedAt: Date.now() }).where(eq(runs.id, runId));
-    await db.insert(deadLetters).values({ id: newId(), kind: "run", runId, reason: "Run failed", detail: { error }, createdAt: Date.now() });
+    console.error("matrix run failed", { runId, delivery, error: errorMessage(e), stack: e instanceof Error ? e.stack : undefined });
+    // If this write fails too, the message is retried and the next delivery takes the run over
+    await failRun(db, runId, "unexpected", errorMessage(e));
   }
+}
+
+// Only a run still queued or running is failed; the dead letter keeps the raw error for the operator
+async function failRun(db: Db, runId: string, code: RunFailure, detail: string): Promise<void> {
+  const now = Date.now();
+  const [run] = await db.select({ status: runs.status, flags: runs.flags }).from(runs).where(eq(runs.id, runId));
+  if (!run || (run.status !== "queued" && run.status !== "running")) return;
+  await db.batch([
+    db
+      .update(runs)
+      .set({ status: "failed", error: RUN_FAILURE_TEXT[code], flags: { ...run.flags, failure: code }, finishedAt: now })
+      .where(and(eq(runs.id, runId), inArray(runs.status, ["queued", "running"]))),
+    db.insert(deadLetters).values({ id: newId(), kind: "run", runId, reason: "Run failed", detail: { code, error: detail.slice(0, 300) }, createdAt: now }),
+  ]);
+}
+
+// The queue's last delivery of a matrix-run message failed (queue.ts)
+export async function failMatrixRun(env: Env, runId: string): Promise<void> {
+  await failRun(getDb(env), runId, "unexpected", "The message failed on every delivery");
+}
+
+// §7.7: a run whose message never arrived, or whose deliveries all died, fails visibly (sweeper.ts)
+export async function sweepStuckMatrixRuns(env: Env, cutoff: number): Promise<number> {
+  const db = getDb(env);
+  const stuck = await db
+    .select({ id: runs.id })
+    .from(runs)
+    .where(and(eq(runs.product, "matrix"), or(and(eq(runs.status, "queued"), lt(runs.createdAt, cutoff)), and(eq(runs.status, "running"), lt(runs.startedAt, cutoff)))));
+  for (const r of stuck) await failRun(db, r.id, "stalled", "Swept: no delivery finished the run");
+  return stuck.length;
 }
 
 async function scoreRun(env: Env, db: Db, run: RunRow, brief: MatrixBrief): Promise<void> {

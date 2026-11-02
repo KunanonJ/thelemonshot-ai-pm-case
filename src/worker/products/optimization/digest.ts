@@ -1,9 +1,10 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
-import { getDb, type Db } from "../../core/db/client";
+import { getDb, isUniqueViolation, type Db } from "../../core/db/client";
 import { campaignDigests, campaignPosts, campaignRefreshes, campaigns, contentMetrics, creators, runLogs, runs, statSnapshots } from "../../core/db/schema";
 import { callJson } from "../../core/llm";
 import type { CampaignDigestMessage } from "../../core/messages";
 import { inputHash, newId } from "../../core/util";
+import { SOURCE_FAILURE_TEXT, type SourceFailure } from "../../core/enrichment/failures";
 import { buildDigestPrompt, DIGEST_PROMPT_VERSION, narrativeJsonSchema, narrativeSchema, validateNarrative, type Narrative } from "./contract";
 import { computeDeltas, DELTAS_VERSION, type DigestDeltas, type TrackedPostInput } from "./deltas";
 
@@ -46,6 +47,14 @@ export async function loadDeltas(db: Db, campaignId: string, now: number): Promi
   return { deltas: computeDeltas(inputs, now), sampleData: rows.some((r) => r.creator.isSample) };
 }
 
+// BR-CORE-3: failures recorded before they carried a code held raw upstream text; those read as the general phrase
+export function plainFailures(failed: { platform: string; error: string; code?: string }[]): { platform: string; error: string; code: string }[] {
+  return failed.map((f) => {
+    const code = (f.code && f.code in SOURCE_FAILURE_TEXT ? f.code : "unavailable") as SourceFailure;
+    return { platform: f.platform, code, error: SOURCE_FAILURE_TEXT[code] };
+  });
+}
+
 // FR-CO-4 footer: when each source last returned data for this campaign, and what failed this time
 async function freshnessOf(env: Env, campaignId: string, refresh: typeof campaignRefreshes.$inferSelect | undefined) {
   const { results } = await env.DB.prepare(
@@ -59,11 +68,15 @@ async function freshnessOf(env: Env, campaignId: string, refresh: typeof campaig
     refreshStartedAt: refresh?.startedAt ?? null,
     refreshFinishedAt: refresh?.finishedAt ?? null,
     lastData: Object.fromEntries(results.map((r) => [r.platform, r.last])),
-    failed: refresh?.failed ?? [],
+    failed: plainFailures(refresh?.failed ?? []),
   };
 }
 
-export async function handleCampaignDigest(env: Env, msg: CampaignDigestMessage): Promise<void> {
+// Deterministic per refresh (finding 12): a retried or duplicate delivery writes the same run, so there are no
+// orphan runs and at most one digest per refresh (a unique index on campaign_digests.refresh_id backs this up)
+export const digestRunId = (refreshId: string) => `digest-${refreshId}`;
+
+export async function handleCampaignDigest(env: Env, msg: CampaignDigestMessage, opts: { useModel?: boolean } = {}): Promise<void> {
   const db = getDb(env);
   const [existing] = await db.select({ runId: campaignDigests.runId }).from(campaignDigests).where(eq(campaignDigests.refreshId, msg.refreshId)).limit(1);
   if (existing) return; // a redelivered message changes nothing (NFR-2)
@@ -74,28 +87,8 @@ export async function handleCampaignDigest(env: Env, msg: CampaignDigestMessage)
   const now = Date.now();
   const { deltas, sampleData } = await loadDeltas(db, campaign.id, now);
   const freshness = await freshnessOf(env, campaign.id, refresh);
-  const runId = newId();
+  const runId = digestRunId(msg.refreshId);
   const flagsBase = { kind: "digest", campaignId: campaign.id, refreshId: msg.refreshId };
-  await db.batch([
-    db.insert(runs).values({
-      id: runId,
-      product: "optimization",
-      status: "running",
-      inputHash: await inputHash(flagsBase),
-      flags: flagsBase,
-      createdBy: refresh?.requestedBy ?? "system",
-      createdAt: now,
-      startedAt: now,
-    }),
-    db.insert(runLogs).values({
-      id: newId(),
-      runId,
-      kind: "inputs",
-      payload: { ...flagsBase, deltasVersion: DELTAS_VERSION, posts: deltas.posts.length, freshness },
-      actor: "system",
-      createdAt: now,
-    }),
-  ]);
 
   // AC-CO-4: the narrative is the only part that needs the model; without it the digest still ships
   let narrative: Narrative | null = null;
@@ -104,6 +97,8 @@ export async function handleCampaignDigest(env: Env, msg: CampaignDigestMessage)
   let model: string | null = null;
   if (deltas.verdict.kind === "no_data") {
     failure = "no_data";
+  } else if (opts.useModel === false) {
+    failure = "skipped_after_errors";
   } else {
     const prompt = buildDigestPrompt({ name: campaign.name, brand: campaign.brand }, deltas);
     const res = await callJson(env, {
@@ -124,19 +119,51 @@ export async function handleCampaignDigest(env: Env, msg: CampaignDigestMessage)
   if (deltas.unavailable.length) flags.push(`posts_unavailable:${deltas.unavailable.length}`);
   if (freshness.failed.length) flags.push(`sources_failed:${freshness.failed.length}`);
 
-  await db.batch([
-    db.insert(campaignDigests).values({
-      runId,
-      campaignId: campaign.id,
-      refreshId: msg.refreshId,
-      deltas: deltas as unknown as Record<string, unknown>,
-      narrative: narrative as unknown as Record<string, unknown> | null,
-      freshness,
-      flags,
-      createdAt: Date.now(),
-    }),
-    db.insert(runLogs).values({ id: newId(), runId, kind: "llm", payload: { model, failure, promptVersion: DIGEST_PROMPT_VERSION }, actor: "system", createdAt: Date.now() }),
-    db.update(runs).set({ status: "draft", finishedAt: Date.now(), flags: { ...flagsBase, llmFailure: failure, sampleData } }).where(eq(runs.id, runId)),
-    db.update(campaignRefreshes).set({ digestRunId: runId }).where(eq(campaignRefreshes.id, msg.refreshId)),
-  ]);
+  // Everything in one batch, the run included, so a failure part-way leaves nothing behind to retry around
+  const done = Date.now();
+  try {
+    await db.batch([
+      db.insert(runs).values({
+        id: runId,
+        product: "optimization",
+        status: "draft",
+        inputHash: await inputHash(flagsBase),
+        flags: { ...flagsBase, llmFailure: failure, sampleData },
+        createdBy: refresh?.requestedBy ?? "system",
+        createdAt: now,
+        startedAt: now,
+        finishedAt: done,
+      }),
+      db.insert(runLogs).values({
+        id: newId(),
+        runId,
+        kind: "inputs",
+        payload: { ...flagsBase, deltasVersion: DELTAS_VERSION, posts: deltas.posts.length, freshness },
+        actor: "system",
+        createdAt: now,
+      }),
+      db.insert(campaignDigests).values({
+        runId,
+        campaignId: campaign.id,
+        refreshId: msg.refreshId,
+        deltas: deltas as unknown as Record<string, unknown>,
+        narrative: narrative as unknown as Record<string, unknown> | null,
+        freshness,
+        flags,
+        createdAt: done,
+      }),
+      db.insert(runLogs).values({ id: newId(), runId, kind: "llm", payload: { model, failure, promptVersion: DIGEST_PROMPT_VERSION }, actor: "system", createdAt: done }),
+      db.update(campaignRefreshes).set({ digestRunId: runId }).where(eq(campaignRefreshes.id, msg.refreshId)),
+    ]);
+  } catch (e) {
+    // A concurrent delivery wrote this refresh's digest first
+    if (isUniqueViolation(e, /runs\.id|campaign_digests/)) return;
+    throw e;
+  }
+}
+
+// The queue's last delivery of a digest message failed (queue.ts): the digest is written from the numbers alone,
+// flagged as having no narrative, which is the designed fallback (AC-CO-4)
+export async function onDigestMessageFailed(env: Env, msg: CampaignDigestMessage): Promise<void> {
+  await handleCampaignDigest(env, msg, { useModel: false });
 }

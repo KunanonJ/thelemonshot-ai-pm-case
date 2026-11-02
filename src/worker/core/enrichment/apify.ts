@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { getDb } from "../db/client";
 import { apifyRuns } from "../db/schema";
 import { errorMessage, localOverride, readSecret } from "../env";
@@ -84,7 +84,36 @@ export async function getDatasetItems(env: Env, datasetId: string, limit: number
     headers: { Authorization: `Bearer ${token(env)}` },
   });
   if (!res.ok) throw new Error(`Apify dataset fetch failed: HTTP ${res.status}`);
-  return (await res.json()) as unknown[];
+  const items = (await res.json()) as unknown;
+  // A 200 with anything but a list (an error object, say) would break every normaliser downstream
+  if (!Array.isArray(items)) throw new Error("Apify dataset fetch returned something other than a list");
+  return items;
+}
+
+// Apify API v2: POST /actor-runs/:runId/abort stops a starting or running run; a finished run is left as it is
+export async function abortActorRun(env: Env, apifyRunId: string): Promise<ApifyRunState> {
+  const res = await fetchWithRetry(`${apifyApi(env)}/actor-runs/${apifyRunId}/abort`, { method: "POST", headers: { Authorization: `Bearer ${token(env)}` } }, { retries: 1 });
+  if (!res.ok) throw new Error(`Apify abort failed: HTTP ${res.status}`);
+  const run = ((await res.json()) as { data: { status: string; defaultDatasetId?: string; usageTotalUsd?: number | null } }).data;
+  return { status: run.status, datasetId: run.defaultDatasetId ?? null, usageUsd: typeof run.usageTotalUsd === "number" ? run.usageTotalUsd : null };
+}
+
+// NFR-5 and finding 16: a run that nothing will poll any more is stopped, so it doesn't go on billing, and its row
+// says why. A row already finished (its results were used) is left alone.
+export async function abandonApifyRun(env: Env, run: { localRunId: string; apifyRunId: string }, reason: string): Promise<void> {
+  const db = getDb(env);
+  const open = and(eq(apifyRuns.id, run.localRunId), isNull(apifyRuns.finishedAt));
+  const [row] = await db.select({ id: apifyRuns.id }).from(apifyRuns).where(open);
+  if (!row) return;
+  try {
+    const state = await abortActorRun(env, run.apifyRunId);
+    // A run that finished after its poll window gave up on it: real cost, unused results
+    const status = state.status === "SUCCEEDED" ? "SUCCEEDED_UNUSED" : "ABORTED";
+    await db.update(apifyRuns).set({ status, error: reason.slice(0, 300), costUsd: state.usageUsd, finishedAt: Date.now() }).where(open);
+  } catch (e) {
+    console.error("apify run not aborted", { ...run, reason, error: errorMessage(e) });
+    await db.update(apifyRuns).set({ status: "ABANDONED", error: `${reason}; the abort request failed`.slice(0, 300), finishedAt: Date.now() }).where(open);
+  }
 }
 
 export async function finishApifyRun(env: Env, localRunId: string, status: string, itemCount: number | null, error?: string, costUsd: number | null = null): Promise<void> {

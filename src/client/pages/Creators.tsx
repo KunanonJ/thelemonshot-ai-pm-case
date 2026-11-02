@@ -10,6 +10,23 @@ type DiscoveryDefaults = Record<string, { label: string; instagram: string[]; ti
 
 const STALE_MS = 72 * 3_600_000;
 
+type DiscoveryResult = { started: number; platforms: { platform: "instagram" | "tiktok"; status: "started" | "failed"; reason?: string }[] };
+
+// Fixed reasons from the API (finding 22); the raw Apify text stays on the operator's side
+const DISCOVERY_REASONS: Record<string, string> = {
+  not_configured: "Apify isn't set up yet",
+  refused: "Apify refused the request, so check the token",
+  limited: "Apify's usage limit was reached",
+  timeout: "Apify didn't answer in time",
+  unavailable: "Apify was unavailable",
+  not_queued: "the run started but couldn't be scheduled for polling, so it was stopped",
+};
+
+function describeFailed(platforms: DiscoveryResult["platforms"]): string {
+  const failed = platforms.filter((p) => p.status === "failed");
+  return failed.map((p) => `${p.platform === "instagram" ? "Instagram" : "TikTok"}: ${DISCOVERY_REASONS[p.reason ?? ""] ?? "couldn't start"}.`).join(" ");
+}
+
 export function Creators({ role }: { role: Role }) {
   const api = useApi();
   const isAdmin = role === "admin";
@@ -249,10 +266,16 @@ function DiscoveryDrawer({ open, onClose }: { open: boolean; onClose: () => void
   async function start() {
     setStatus("Starting");
     try {
-      await api("/api/admin/discovery", { method: "POST", body: { category, instagramHashtags: list(igValue), tiktokHashtags: list(ttValue) } });
-      setStatus("Started. New creators appear in a few minutes and are enriched automatically.");
+      const r = await api<DiscoveryResult>("/api/admin/discovery", { method: "POST", body: { category, instagramHashtags: list(igValue), tiktokHashtags: list(ttValue) } });
+      const failed = describeFailed(r.platforms);
+      setStatus(
+        failed
+          ? `Started ${r.started} of ${r.platforms.length}. ${failed}`
+          : "Started. New creators appear in a few minutes and are enriched automatically.",
+      );
     } catch (e) {
-      setStatus(e instanceof ApiError ? `Couldn't start (${e.code}).` : "Couldn't start.");
+      const failed = e instanceof ApiError ? describeFailed((e.body as Partial<DiscoveryResult>).platforms ?? []) : "";
+      setStatus(failed ? `Couldn't start. ${failed}` : "Couldn't start.");
     }
   }
 

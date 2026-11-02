@@ -150,6 +150,31 @@ Calls made in Phases 4 to 6, from the builders' reports:
 
 UI direction (Mobbin references): Lightfield and Twenty for the shell and tables, Kit's Recommendations for the stat strip, Whop's Launch campaign for the brief form. Neutral greys, one near-black primary, lemon only as the brand mark.
 
+## Error-path review (2 Nov 2026, before keys)
+
+An independent review traced every queue message and status field to the code that writes it and found 25 ways work could stall, fail silently or show raw errors. All 25 are fixed. Creative Variants, Trend Monitoring and Retail Media were fixed in parallel on their own branches and merged; the shared code was fixed on main.
+
+| Area | What changed |
+|---|---|
+| Queue (`queue.ts`) | Retries are spaced out. On the last delivery, the work a message owned settles in a visible, retryable failed state and a dead letter records it. Unknown messages are logged and dropped. Logs carry the kind, ids, attempt and stack. |
+| Stuck-work sweep | Covers every product, re-queues digests whose message was lost, and aborts paid Apify runs nothing polls. Each part runs on its own. |
+| Cron | Each step runs on its own; `/health` names failing steps and System shows their errors. Sweep gates are handed back when work fails. |
+| Model gateway | `callJson` never throws, so every product's deterministic fallback runs. |
+| ① Matrix | Runs are claimed in one guarded update, a dead delivery's run is taken over cleanly, and failures show a fixed sentence. A run that can't be queued fails at once. |
+| ④ Proposal | A failed first send fails the run; a failed regenerate or attach send puts the section back. The sweep judges a first draft by the latest update across its sections. |
+| ③ Optimization | Platform answers are applied once, even when delivered twice. A stale refresh no longer blocks new ones. Digests have one run per refresh. Footer failures are fixed phrases. |
+| Enrichment | Jobs are claimed, each profile saves on its own, and partial YouTube answers fail the job instead of replacing good data. A source outage shows a notice on every page instead of dead-lettering every creator. |
+| ②, ⑤, ⑥ | Pulls, briefs and slots can no longer stay running; term and slot failures are plain sentences; short links fall back to D1 when KV fails. |
+| Auth | A Clerk outage falls back to the last known role, or answers 503 instead of 500. |
+
+Checks on the merged code: 196 unit tests. End-to-end, every earlier script still passes on main (Phase 2 50 of 50, Phase 3 34 of 34, Phase 4 31 of 31, Phase 5 51 of 51, Phase 6 25 of 25, Phase 7 10 of 10). New failure-path scripts pass too: 26 shared checks, 25 for Trends and 23 for Creative Variants. Not exercised: a queue that refuses a send (local dev can't make it fail without a test hook in production code), the real dead-letter queue, a Clerk outage, and real Apify abort responses.
+
+41. **Queue deliveries:** four in all (`max_retries` 3), retried after 15 s, 60 s and 180 s. The fourth failure settles the work and writes a dead letter; the dead-letter queue only receives a message whose settling failed too.
+42. **Sweep thresholds:** 20 minutes for runs, sections, refreshes, pulls and slots; 45 for enrichment jobs; 30 for an Apify run before it is aborted. A done refresh with no digest is re-queued for up to six hours.
+43. **Source failures** are stored as a code and a fixed phrase. A failure that would hit anyone (a missing or refused key, quota, an outage) doesn't dead-letter the creator or hold them out of the next sweep; it raises a notice on every page for up to three hours, cleared by the next success.
+44. **Role cache:** fresh for 60 seconds, kept 7 days as a fallback. During a Clerk outage a role revoked in Clerk keeps working until Clerk answers again.
+45. **Migration 0007** adds `enrichment_jobs.failure_scope`, one digest per refresh and one running refresh per campaign. Its cleanup statements are hand-added before each unique index, so existing duplicates can't make it fail.
+
 ## Needed from Fronk
 
 - Phase 0: the secrets above via `wrangler secret put`, a Clerk application (a development instance is enough for Phase 0) and its publishable key, and one sign-in on the deployed shell.

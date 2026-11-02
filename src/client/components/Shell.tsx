@@ -1,10 +1,14 @@
 import type { ReactNode } from "react";
 import { useResource } from "../lib/api";
 import { UserMenu } from "../lib/auth";
+import { fmtDateTime } from "../lib/format";
 import { Link, useRouter } from "../lib/router";
 import { cx } from "./ui";
 
 type NavItem = { label: string; to?: string; soon?: string; adminOnly?: boolean };
+type Degraded = { source: "apify" | "youtube_api"; since: number; reason: string };
+
+const SOURCE_LABELS: Record<Degraded["source"], string> = { apify: "Instagram and TikTok", youtube_api: "YouTube" };
 
 // Products in PRD build order; later ones show their phase until they ship
 const NAV: { section: string; items: NavItem[] }[] = [
@@ -27,6 +31,8 @@ export function Shell({ role, title, actions, children }: { role: string; title:
   const { path } = useRouter();
   // NFR-5: admins see the weekly cost alert on every page; it never blocks anything
   const cost = useResource<{ over: boolean; totalThb: number; thresholdThb: number }>(role === "admin" ? "/api/admin/cost-alert" : null);
+  // Finding 18: a source failing for everyone is said once, on every page, not left to show as stale rows
+  const status = useResource<{ degraded: Degraded[] }>("/api/status");
   return (
     <div className="min-h-screen bg-white text-neutral-900">
       <aside className="fixed inset-y-0 left-0 flex w-56 flex-col border-r border-neutral-200 bg-neutral-50/70">
@@ -75,6 +81,12 @@ export function Shell({ role, title, actions, children }: { role: string; title:
           <div className="flex min-w-0 items-center gap-2 text-[13px]">{title}</div>
           <div className="flex items-center gap-2">{actions}</div>
         </header>
+        {status.data?.degraded.map((d) => (
+          <div key={d.source} className="border-b border-amber-200 bg-amber-50/70 px-6 py-2 text-[13px] text-amber-900">
+            {SOURCE_LABELS[d.source]} data isn't refreshing right now ({d.reason}, since {fmtDateTime(d.since)}). Scores and digests use the last data that arrived, and
+            each row shows its age.
+          </div>
+        ))}
         {cost.data?.over && (
           <div className="border-b border-amber-200 bg-amber-50/70 px-6 py-2 text-[13px] text-amber-900">
             External costs this week are ฿{cost.data.totalThb.toLocaleString("en")}, over the ฿{cost.data.thresholdThb.toLocaleString("en")} threshold. Nothing has been stopped.{" "}

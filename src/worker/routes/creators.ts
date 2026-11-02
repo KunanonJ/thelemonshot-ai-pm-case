@@ -2,12 +2,16 @@ import { desc, eq, isNull } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { requireRole, type AppEnv } from "../core/auth";
-import { getDb } from "../core/db/client";
+import { getDb, isUniqueViolation } from "../core/db/client";
 import { creators, deadLetters } from "../core/db/schema";
-import { requestEnrichment } from "../core/enrichment/service";
+import { deadLetterOnce, requestEnrichment } from "../core/enrichment/service";
+import { errorMessage } from "../core/env";
 import { newId, normaliseHandle } from "../core/util";
 
 export const creatorRoutes = new Hono<AppEnv>();
+
+// A refresh still running inside this window isn't started again (finding 20)
+const REFRESH_IN_FLIGHT_MS = 45 * 60_000;
 
 type LatestSnapshot = { creator_id: string; platform: string; followers: number | null; engagement_rate: number | null; median_views: number | null; fetched_at: number };
 
@@ -71,15 +75,31 @@ creatorRoutes.post("/", requireRole("admin"), async (c) => {
         createdAt: now,
         updatedAt: now,
       });
-  } catch {
-    return c.json({ error: "handle_already_in_roster" }, 409);
+  } catch (e) {
+    // Only a handle unique index means "already in the roster"; anything else is a real error (finding 21)
+    if (isUniqueViolation(e, /creators\.(instagram|tiktok|youtube)/)) return c.json({ error: "handle_already_in_roster" }, 409);
+    throw e;
   }
-  await requestEnrichment(c.env, [id], "add", c.get("userId"));
+  try {
+    await requestEnrichment(c.env, [id], "add", c.get("userId"));
+  } catch (e) {
+    // The creator exists either way; it shows as failed with a dead letter instead of "pending" with no job
+    console.error("enrichment not requested for a new creator", { creatorId: id, error: errorMessage(e) });
+    const db = getDb(c.env);
+    await deadLetterOnce(db, { creatorId: id, reason: "Enrichment couldn't be queued", detail: {} });
+    await db.update(creators).set({ enrichmentStatus: "failed", updatedAt: Date.now() }).where(eq(creators.id, id));
+    return c.json({ id, enrichment: "not_queued" }, 201);
+  }
   return c.json({ id }, 201);
 });
 
 creatorRoutes.post("/:id/refresh", requireRole("admin"), async (c) => {
-  const jobs = await requestEnrichment(c.env, [c.req.param("id")], "manual", c.get("userId"));
+  const id = c.req.param("id");
+  const inFlight = await c.env.DB.prepare("SELECT 1 AS busy FROM enrichment_jobs WHERE creator_id = ?1 AND status = 'pending' AND updated_at > ?2 LIMIT 1")
+    .bind(id, Date.now() - REFRESH_IN_FLIGHT_MS)
+    .first();
+  if (inFlight) return c.json({ queued: 0, inFlight: true });
+  const jobs = await requestEnrichment(c.env, [id], "manual", c.get("userId"));
   return c.json({ queued: jobs });
 });
 

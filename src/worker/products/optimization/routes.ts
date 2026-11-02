@@ -5,11 +5,12 @@ import { requireRole, type AppEnv } from "../../core/auth";
 import { getDb, insertChunked } from "../../core/db/client";
 import { briefs, campaignActions, campaignDigests, campaignPosts, campaignRefreshes, campaigns, contentItems, creators, runLogs, runs } from "../../core/db/schema";
 import { requestEnrichment } from "../../core/enrichment/service";
+import { errorMessage } from "../../core/env";
 import { newId } from "../../core/util";
 import { campaignSchema, endOfDay, resolvePosts, startOfDay } from "./campaign";
 import { closeCampaign, closePreview } from "./closing";
 import { HISTORY_VERSION, OUTCOME_VERSION } from "./deltas";
-import { loadDeltas } from "./digest";
+import { loadDeltas, plainFailures } from "./digest";
 import { MANUAL_COOLDOWN_MS, RefreshError, startCampaignRefresh } from "./refresh";
 
 export const campaignRoutes = new Hono<AppEnv>();
@@ -93,7 +94,10 @@ campaignRoutes.post("/", requireRole("admin", "member"), async (c) => {
   );
   // Stubs get a profile snapshot (Instagram engagement needs followers); the posts get their first numbers
   if (stubs.length) await requestEnrichment(c.env, stubs.map((s) => s.id), "add", userId);
-  await startCampaignRefresh(c.env, campaignId, "registration", userId).catch(() => null);
+  // The campaign exists either way; a first refresh that can't start is logged, and the cron or a manual refresh follows
+  await startCampaignRefresh(c.env, campaignId, "registration", userId).catch((e) => {
+    if (!(e instanceof RefreshError)) console.error("first refresh not started", { campaignId, error: errorMessage(e) });
+  });
   return c.json({ campaignId, stubs: stubs.length }, 201);
 });
 
@@ -126,7 +130,7 @@ campaignRoutes.get("/:id", async (c) => {
     sampleData,
     deltas,
     matrixRun: matrix ? { id: matrix.id, status: matrix.status, brand: (matrix.fields as { brand?: string } | null)?.brand ?? null } : null,
-    refreshes,
+    refreshes: refreshes.map((r) => ({ ...r, failed: plainFailures(r.failed) })),
     digests: digests.map(({ deltas: d, ...rest }) => ({ ...rest, verdict: (d as { verdict?: unknown }).verdict ?? null })),
     actions,
   });
@@ -156,7 +160,8 @@ campaignRoutes.get("/:id/digests/:runId", async (c) => {
     .where(and(eq(campaignDigests.runId, c.req.param("runId")), eq(campaignDigests.campaignId, c.req.param("id"))));
   if (!row) return c.json({ error: "not_found" }, 404);
   const actions = await db.select().from(campaignActions).where(eq(campaignActions.digestRunId, row.digest.runId)).orderBy(campaignActions.createdAt);
-  return c.json({ ...row.digest, scope: SCOPE, status: row.run.status, reviewedAt: row.run.reviewedAt, reviewedBy: row.run.reviewedBy, llmFailure: (row.run.flags as { llmFailure?: string | null }).llmFailure ?? null, actions });
+  const freshness = row.digest.freshness as { failed?: { platform: string; error: string; code?: string }[] };
+  return c.json({ ...row.digest, freshness: { ...freshness, failed: plainFailures(freshness.failed ?? []) }, scope: SCOPE, status: row.run.status, reviewedAt: row.run.reviewedAt, reviewedBy: row.run.reviewedBy, llmFailure: (row.run.flags as { llmFailure?: string | null }).llmFailure ?? null, actions });
 });
 
 // FR-CORE-22: a digest is a draft until a planner approves or rejects it

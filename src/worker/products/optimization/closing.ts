@@ -1,6 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
-import { getDb, type Db } from "../../core/db/client";
+import { getDb, isUniqueViolation, type Db } from "../../core/db/client";
 import { campaigns, creators, outcomeRecords, runLogs, runs } from "../../core/db/schema";
 import { inputHash, newId } from "../../core/util";
 import { closingSummary, HISTORY_VERSION, historyScore, OUTCOME_VERSION, type OutcomeRow } from "./deltas";
@@ -87,7 +87,8 @@ export async function closeCampaign(env: Env, campaignId: string, userId: string
   try {
     await db.batch([statements[0]!, ...statements.slice(1)]);
   } catch (e) {
-    if (/UNIQUE|constraint/i.test(String(e))) return { error: "campaign_not_active" };
+    // Only the deterministic write-back run colliding means "already closed"; any other error is a real failure
+    if (isUniqueViolation(e, /runs\.id/)) return { error: "campaign_not_active" };
     throw e;
   }
   return { writeBack };

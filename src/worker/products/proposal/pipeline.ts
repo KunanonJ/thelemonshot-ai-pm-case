@@ -1,10 +1,10 @@
-import { and, desc, eq, inArray, lt } from "drizzle-orm";
+import { and, desc, eq, inArray, max } from "drizzle-orm";
 import { getDb, type Db } from "../../core/db/client";
 import { briefs, creators, PROPOSAL_ORIGINS, proposalSections, proposalVersions, runLogs, runs, type ProposalCitation } from "../../core/db/schema";
 import { errorMessage } from "../../core/env";
 import { callJson } from "../../core/llm";
-import type { ProposalSectionMessage } from "../../core/messages";
-import { inputHash, newId } from "../../core/util";
+import { QueueUnavailable, type ProposalSectionMessage } from "../../core/messages";
+import { chunk, inputHash, newId } from "../../core/util";
 import { matrixBriefSchema } from "../matrix/brief";
 import { createMatrixRun } from "../matrix/pipeline";
 import { proposalBriefSchema, type ProposalBrief } from "./brief";
@@ -46,6 +46,7 @@ const FAILURE_TEXT: Record<string, string> = {
   shortlist_unavailable: "The attached shortlist has no picks to cite",
   unexpected: "Something went wrong while drafting this section",
   stalled: "Drafting stopped before this section finished",
+  not_queued: "Drafting couldn't be started. Start the proposal again",
 };
 
 export class ProposalInputError extends Error {}
@@ -94,7 +95,17 @@ export async function createProposalRun(env: Env, brief: ProposalBrief, userId: 
     db.insert(proposalSections).values(template.sections.map((s, i) => ({ id: newId(), runId, sectionKey: s.key, position: i, status: "pending" as const, updatedAt: now }))),
     db.insert(runLogs).values({ id: newId(), runId, kind: "inputs", payload: { brief, template: template.id, shortlist, promptVersion: PROMPT_VERSION }, actor: userId, createdAt: now }),
   ]);
-  await env.ENRICH_QUEUE.send(sectionMessage(runId, generationOrder(template)[0]!, "initial", userId));
+  try {
+    await env.ENRICH_QUEUE.send(sectionMessage(runId, generationOrder(template)[0]!, "initial", userId));
+  } catch (e) {
+    // The chain never started: the run fails now, with its sections settled, instead of drafting forever
+    const at = Date.now();
+    await db.batch([
+      db.update(runs).set({ status: "failed", error: FAILURE_TEXT.not_queued, finishedAt: at }).where(eq(runs.id, runId)),
+      db.update(proposalSections).set({ status: "failed", error: FAILURE_TEXT.not_queued, updatedAt: at }).where(eq(proposalSections.runId, runId)),
+    ]);
+    throw new QueueUnavailable(e);
+  }
   return { runId, deduped: false };
 }
 
@@ -296,6 +307,21 @@ async function guardContext(db: Db, ctx: Context, key: SectionKey, picks: Shortl
   };
 }
 
+// The queue's last delivery of a section message failed (queue.ts). The section settles the way a model failure
+// would, and the first-draft chain moves on, so one bad section never holds up the rest (BR-CP-2).
+export async function onProposalMessageFailed(env: Env, msg: ProposalSectionMessage): Promise<void> {
+  const db = getDb(env);
+  const [run] = await db.select().from(runs).where(eq(runs.id, msg.runId));
+  if (!run || run.product !== "proposal") return;
+  const [section] = await db
+    .select()
+    .from(proposalSections)
+    .where(and(eq(proposalSections.runId, run.id), eq(proposalSections.sectionKey, msg.sectionKey)));
+  if (!section) return;
+  if (section.status === "pending" || section.status === "generating") await recordFailure(db, run, section, msg, "unexpected");
+  if (msg.mode === "initial" && (run.status === "queued" || run.status === "running")) await advance(env, db, run, msg.sectionKey as SectionKey);
+}
+
 // BR-CP-2: a first draft that fails keeps the template draft (flagged, with a retry); a failed
 // regeneration leaves the current version in place and says so
 async function recordFailure(db: Db, run: RunRow, section: SectionRow, msg: ProposalSectionMessage, reason: string, known?: Context): Promise<void> {
@@ -387,20 +413,31 @@ async function advance(env: Env, db: Db, run: RunRow, fromKey: SectionKey): Prom
 }
 
 // §7.7 and NFR-2: a lost or dead-lettered queue message must not leave a proposal drafting forever. The cron
-// sweep settles any section stuck in pending or generating for longer than this, the same way a model failure
-// does (template draft with a retry, or the current version kept), then lets the run reach draft.
+// sweep settles a stalled section the same way a model failure does (template draft with a retry, or the current
+// version kept), then lets the run reach draft. A first draft's heartbeat is the latest update across all its
+// sections, since later sections wait "pending" while earlier ones draft; a regeneration's is its own section's.
 const STALLED_AFTER_MS = 20 * 60_000;
 
 export async function sweepStuckProposals(env: Env, now = Date.now()): Promise<number> {
   const db = getDb(env);
-  const stuck = await db
+  const cutoff = now - STALLED_AFTER_MS;
+  const open = await db
     .select({ section: proposalSections, run: runs })
     .from(proposalSections)
     .innerJoin(runs, eq(proposalSections.runId, runs.id))
-    .where(and(inArray(proposalSections.status, ["pending", "generating"]), lt(proposalSections.updatedAt, now - STALLED_AFTER_MS)));
+    .where(and(inArray(proposalSections.status, ["pending", "generating"]), inArray(runs.status, ["queued", "running", "draft"])));
+  const heartbeat = new Map<string, number>();
+  for (const part of chunk([...new Set(open.map((o) => o.run.id))], 90)) {
+    const rows = await db
+      .select({ runId: proposalSections.runId, last: max(proposalSections.updatedAt) })
+      .from(proposalSections)
+      .where(inArray(proposalSections.runId, part))
+      .groupBy(proposalSections.runId);
+    for (const r of rows) heartbeat.set(r.runId, r.last ?? 0);
+  }
+  const stuck = open.filter(({ section, run }) => (run.status === "draft" ? section.updatedAt : (heartbeat.get(run.id) ?? section.updatedAt)) < cutoff);
   const touched = new Set<string>();
   for (const { section, run } of stuck) {
-    if (!["queued", "running", "draft"].includes(run.status)) continue;
     await recordFailure(db, run, section, sectionMessage(run.id, section.sectionKey as SectionKey, "initial", "system:sweep"), "stalled");
     touched.add(run.id);
   }

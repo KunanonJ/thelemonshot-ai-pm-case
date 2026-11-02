@@ -76,7 +76,13 @@ export function NewBrief({ role }: { role: Role }) {
       });
       navigate(`/matrix/runs/${runId}`);
     } catch (e) {
-      setError(e instanceof ApiError && e.code === "invalid_brief" ? "Check the brief: a category, an objective and at least one platform are required." : "Couldn't start the run.");
+      setError(
+        e instanceof ApiError && e.code === "invalid_brief"
+          ? "Check the brief: a category, an objective and at least one platform are required."
+          : e instanceof ApiError && e.code === "queue_unavailable"
+            ? "Background work couldn't be scheduled just now. Try again in a minute."
+            : "Couldn't start the run.",
+      );
       setSubmitting(false);
     }
   }

@@ -225,7 +225,8 @@ export async function runPhase0Auto(env: Env): Promise<void> {
     const prev = previous.get(id);
     const age = prev ? Date.now() - Date.parse(prev.updated_at) : Infinity;
     if (prev?.status === "pass") continue;
-    if (prev?.status === "running" && age < STALE_RUNNING_MS) continue;
+    // A check stuck "running" restarts after a while, and stops after a few tries, since each Apify one is a paid run
+    if (prev?.status === "running" && (age < STALE_RUNNING_MS || prev.attempts >= AUTO_MAX_ATTEMPTS)) continue;
     // Failures retry a few times, spaced out, so a bad token can't keep burning paid actor runs
     if (prev?.status === "fail" && (age < AUTO_RETRY_AFTER_MS || prev.attempts >= AUTO_MAX_ATTEMPTS)) continue;
     await saveResult(env, await run(env));
