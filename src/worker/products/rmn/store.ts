@@ -5,6 +5,7 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { getDb } from "../../core/db/client";
 import { errorMessage } from "../../core/env";
 import { newId } from "../../core/util";
+import { countDroppedWrite } from "./cache";
 import { classifyUserAgent } from "./bots";
 import { CATEGORIES, DEMO_PRODUCTS, findCategory, findProduct, STORE_BANNER, type DemoProduct } from "./catalog";
 import { ATTRIBUTION_COOKIE, addClickId, CART_COOKIE, MAX_CART_LINES, parseCart, parseClickIds, serialiseIds } from "./cookies";
@@ -27,9 +28,39 @@ const esc = (value: string) => value.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;"
 const baht = (n: number) => `THB ${Math.round(n).toLocaleString("en-US")}`;
 const isHuman = (c: PublicContext) => classifyUserAgent(c.req.header("user-agent")).uaClass === "human";
 
-// Logging never holds up a visitor: the write completes after the response is sent (BR-RM-3, FR-RM-2)
-function inBackground(c: PublicContext, write: PromiseLike<unknown>): void {
-  c.executionCtx.waitUntil(Promise.resolve(write).catch((e) => console.error("rmn write failed", errorMessage(e))));
+// Logging never holds up a visitor: the write completes after the response is sent (BR-RM-3, FR-RM-2). A write that fails is
+// counted against the campaigns it belongs to, so the dashboard can say its numbers may be low (BR-CORE-2).
+function inBackground(c: PublicContext, write: PromiseLike<unknown>, onDropped: () => Promise<unknown>): void {
+  c.executionCtx.waitUntil(
+    (async () => {
+      try {
+        await write;
+      } catch (e) {
+        console.error("rmn write failed", errorMessage(e));
+        await onDropped().catch((countError: unknown) => console.error("rmn drop count failed", errorMessage(countError)));
+      }
+    })(),
+  );
+}
+
+// FR-RM-5: a funnel event carries the click IDs from the attribution cookie, so a dropped event is counted against those campaigns
+function recordStoreEvent(c: PublicContext, kind: "view" | "add", productId: string): void {
+  const clickIds = parseClickIds(getCookie(c, ATTRIBUTION_COOKIE));
+  inBackground(
+    c,
+    getDb(c.env).insert(rmnStoreEvents).values({ id: newId(), kind, productId, clickIds, createdAt: Date.now() }),
+    () => countDroppedEvent(c.env, clickIds),
+  );
+}
+
+// The campaigns are those whose human, redirected clicks the event carries: the same tie the dashboard funnel uses
+async function countDroppedEvent(env: Env, clickIds: string[]): Promise<void> {
+  if (clickIds.length === 0) return;
+  const rows = await getDb(env)
+    .select({ campaignId: rmnClicks.campaignId })
+    .from(rmnClicks)
+    .where(and(inArray(rmnClicks.id, clickIds), eq(rmnClicks.result, "redirected"), eq(rmnClicks.uaClass, "human")));
+  await Promise.all([...new Set(rows.map((r) => r.campaignId))].map((campaignId) => countDroppedWrite(env.CONFIG, campaignId)));
 }
 
 function referrerHostOf(referer: string | undefined): string | null {
@@ -86,7 +117,7 @@ function page(c: PublicContext, title: string, body: string): string {
 }
 
 // A neutral answer: it names no creator, campaign or product, so a dead or foreign link reveals nothing
-function neutral(c: PublicContext, status: 404 | 410, message: string) {
+function neutral(c: PublicContext, status: 404 | 410 | 500 | 503, message: string) {
   c.header("Cache-Control", "no-store");
   return c.html(page(c, "Link", `<section class="panel"><h1>${esc(message)}</h1><p class="muted">The RMN demo store takes no payments and sells simulated products.</p><p><a href="/store">Go to the demo store</a></p></section>`), status);
 }
@@ -97,7 +128,11 @@ function productCard(p: DemoProduct): string {
 
 // FR-RM-1 and BR-RM-3: the hot path is one KV read and a deferred log write. A disabled link is logged and answered neutrally.
 rmnPublicRoutes.get("/r/:slug", async (c) => {
-  const link = await resolveLink(c.env, c.req.param("slug"));
+  const link = await resolveLink(c.env, c.req.param("slug")).catch((e: unknown) => {
+    console.error("rmn link lookup failed", errorMessage(e));
+    return "unavailable" as const;
+  });
+  if (link === "unavailable") return neutral(c, 503, "This link can't be opened right now.");
   if (!link) return neutral(c, 404, "This link isn't active.");
   const verdict = classifyUserAgent(c.req.header("user-agent"));
   const clickId = newId();
@@ -117,6 +152,7 @@ rmnPublicRoutes.get("/r/:slug", async (c) => {
           referrerHost: referrerHostOf(c.req.header("referer")),
           clickedAt: Date.now(),
         }),
+      () => countDroppedWrite(c.env.CONFIG, link.campaignId),
     );
   if (link.disabled) {
     log("disabled");
@@ -151,14 +187,7 @@ rmnPublicRoutes.get("/store/c/:category", (c) => {
 rmnPublicRoutes.get("/store/p/:product", (c) => {
   const product = findProduct(c.req.param("product"));
   if (!product) return neutral(c, 404, "That product isn't in the demo store.");
-  if (isHuman(c)) {
-    inBackground(
-      c,
-      getDb(c.env)
-        .insert(rmnStoreEvents)
-        .values({ id: newId(), kind: "view", productId: product.id, clickIds: parseClickIds(getCookie(c, ATTRIBUTION_COOKIE)), createdAt: Date.now() }),
-    );
-  }
+  if (isHuman(c)) recordStoreEvent(c, "view", product.id);
   return c.html(
     page(
       c,
@@ -176,14 +205,7 @@ rmnPublicRoutes.post("/store/cart/add", async (c) => {
   if (!product) return c.redirect("/store", 303);
   const lines = [...cartProducts(c).map((p) => p.id), product.id].slice(-MAX_CART_LINES);
   setCookie(c, CART_COOKIE, serialiseIds(lines), cookieOptions(c, LIFETIME.cart));
-  if (isHuman(c)) {
-    inBackground(
-      c,
-      getDb(c.env)
-        .insert(rmnStoreEvents)
-        .values({ id: newId(), kind: "add", productId: product.id, clickIds: parseClickIds(getCookie(c, ATTRIBUTION_COOKIE)), createdAt: Date.now() }),
-    );
-  }
+  if (isHuman(c)) recordStoreEvent(c, "add", product.id);
   return c.redirect("/store/cart", 303);
 });
 
@@ -205,26 +227,32 @@ rmnPublicRoutes.get("/store/cart", (c) => {
 rmnPublicRoutes.post("/store/checkout", async (c) => {
   const products = cartProducts(c);
   if (products.length === 0) return c.redirect("/store/cart", 303);
-  const db = getDb(c.env);
-  const clickIds = parseClickIds(getCookie(c, ATTRIBUTION_COOKIE));
-  // Only human, redirected clicks are touchpoints. A click ID with no matching log row yet is ignored.
-  const touched = clickIds.length
-    ? await db
-        .select({ id: rmnClicks.id })
-        .from(rmnClicks)
-        .where(and(inArray(rmnClicks.id, clickIds), eq(rmnClicks.result, "redirected"), eq(rmnClicks.uaClass, "human")))
-    : [];
   const orderId = newId();
-  const statements: BatchItem<"sqlite">[] = [
-    db.insert(rmnSimulatedOrders).values({
-      id: orderId,
-      items: products.map((p) => ({ productId: p.id, name: p.name, priceThb: p.priceThb })),
-      revenueThb: products.reduce((sum, p) => sum + p.priceThb, 0),
-      createdAt: Date.now(),
-    }),
-    ...touched.map((t) => db.insert(rmnOrderTouchpoints).values({ id: newId(), orderId, clickId: t.id })),
-  ];
-  await db.batch([statements[0]!, ...statements.slice(1)]);
+  try {
+    const db = getDb(c.env);
+    const clickIds = parseClickIds(getCookie(c, ATTRIBUTION_COOKIE));
+    // Only human, redirected clicks are touchpoints. A click ID with no matching log row yet is ignored.
+    const touched = clickIds.length
+      ? await db
+          .select({ id: rmnClicks.id })
+          .from(rmnClicks)
+          .where(and(inArray(rmnClicks.id, clickIds), eq(rmnClicks.result, "redirected"), eq(rmnClicks.uaClass, "human")))
+      : [];
+    const statements: BatchItem<"sqlite">[] = [
+      db.insert(rmnSimulatedOrders).values({
+        id: orderId,
+        items: products.map((p) => ({ productId: p.id, name: p.name, priceThb: p.priceThb })),
+        revenueThb: products.reduce((sum, p) => sum + p.priceThb, 0),
+        createdAt: Date.now(),
+      }),
+      ...touched.map((t) => db.insert(rmnOrderTouchpoints).values({ id: newId(), orderId, clickId: t.id })),
+    ];
+    // One batch, so a failure leaves neither the order nor its touchpoints behind
+    await db.batch([statements[0]!, ...statements.slice(1)]);
+  } catch (e) {
+    console.error("rmn checkout failed", errorMessage(e));
+    return neutral(c, 503, "The demo order couldn't be saved. Nothing was charged.");
+  }
   deleteCookie(c, CART_COOKIE, { path: "/" });
   return c.redirect(`/store/order/${orderId}`, 303);
 });
@@ -242,3 +270,12 @@ rmnPublicRoutes.get("/store/order/:id", async (c) => {
     ),
   );
 });
+
+// BR-CORE-3: a shopper never sees a JSON error or a plain-text 404. Anything not handled above gets the neutral page.
+rmnPublicRoutes.onError((e, c) => {
+  console.error("rmn public page failed", errorMessage(e));
+  return neutral(c, 500, "This page isn't available right now. Please try again later.");
+});
+rmnPublicRoutes.all("/r/*", (c) => neutral(c, 404, "This link isn't active."));
+rmnPublicRoutes.all("/store", (c) => neutral(c, 404, "That page isn't in the demo store."));
+rmnPublicRoutes.all("/store/*", (c) => neutral(c, 404, "That page isn't in the demo store."));

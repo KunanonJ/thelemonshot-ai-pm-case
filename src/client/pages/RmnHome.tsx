@@ -74,7 +74,7 @@ export function RmnHome({ role }: { role: Role }) {
           </table>
         </div>
       )}
-      {data.error && <p className="mt-4 text-sm text-red-700">Couldn't load campaigns ({data.error}).</p>}
+      {data.error && <p className="mt-4 text-sm text-red-700">Couldn't load campaigns. Refresh the page to try again.</p>}
     </Shell>
   );
 }
