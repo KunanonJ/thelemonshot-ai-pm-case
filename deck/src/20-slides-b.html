@@ -1,0 +1,194 @@
+
+<!-- ============================== 10 MVP ============================== -->
+<section class="slide" data-section="Task 2 · MVP blueprint">
+  <div class="kicker r">Task 2 · MVP blueprint</div>
+  <h2 class="t r" style="--d:1">Creator Match: brief in, explained shortlist out</h2>
+  <div class="body">
+    <div class="mvp">
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div class="card r" style="--d:2"><div class="lab o">Problem</div><p>About <b>6 hours per shortlist</b>, and days for 100+ KOL campaigns. Picks lean on memory and follower counts. Past performance goes unused. Brand-safety checks are manual and inconsistent.</p></div>
+        <div class="card r" style="--d:3"><div class="lab">Users and the job to be done</div><p>Strategists and talent managers (Creator House). Account managers request, CDs approve.</p><p style="margin-top:6px;color:var(--text);font-size:14px">"Give me a defensible, brand-safe shortlist I can show a client today, and show me why."</p></div>
+        <div class="card r" style="--d:4"><div class="lab">v1.0 experience: no new app</div>
+          <div class="flow">
+            <div class="st"><i>1</i><span>Open the form pinned in Slack: 8 fields, or upload the client brief as a PDF.</span></div>
+            <div class="st"><i>2</i><span>3-5 minutes later, a Slack card arrives with the top picks and a link to the shortlist Sheet.</span></div>
+            <div class="st"><i>3</i><span>Every pick shows its score breakdown, a rationale citing posts, risk flags, rate and data date.</span></div>
+            <div class="st"><i>4</i><span>Keep, swap or remove with a one-click reason, or "add my pick", which is scored too and never penalized.</span></div>
+            <div class="st"><i>5</i><span>Approve, and the shortlist flows into Proposal Copilot. Every decision is saved as feedback.</span></div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div class="slack r" style="--d:3">
+          <div class="hd"><div class="av">CM</div><div><span class="nm">Creator Match</span><span class="app">APP</span><span class="tm">9:14 AM</span></div></div>
+          <div style="color:#e8e8e8;margin-bottom:6px"><b>Sunny Snacks (demo)</b> · Sales · TikTok + Instagram · 5 creators, THB 400k</div>
+          <div class="pk"><span class="sc">71</span><span><b>@demo.foodie.a</b> · mid · TikTok<span class="why">Snack reviews are 40% of recent posts; followers ask where to buy.</span></span></div>
+          <div class="pk"><span class="sc">68</span><span><b>@demo.spicy.h</b> · mid · TikTok<span class="why">Spicy challenges match the product.</span><span class="fl">Flag: brand-safety review, language in two September posts</span></span></div>
+          <div class="pk"><span class="sc">66</span><span><b>@demo.mukbang.b</b> · macro · TikTok<span class="why">Biggest reach at the best cost per engagement.</span><span class="fl">Flag: check short-format fit</span></span></div>
+          <div class="pk"><span class="sc">66</span><span><b>@demo.campus.f</b> · micro · TikTok<span class="why">91% audience fit, rising. No paid history yet, so performance is estimated.</span></span></div>
+          <div style="color:#9a9ea4;font-size:11.5px;border-top:1px solid #2c2f34;padding-top:6px">+1 more pick and 3 alternates · 2 flags · THB 289k of 400k · data as of 1 Nov</div>
+          <div class="btns"><span>Open shortlist</span><span class="go">Approve</span><span>Request changes</span></div>
+        </div>
+        <div class="src r" style="--d:4">Demo output from the actual n8n workflow (CM-01) run on sample data. Out of scope in v1: outreach, rate negotiation, contracts, and any generated content that uses a creator's likeness.</div>
+      </div>
+    </div>
+  </div>
+  <aside class="notes">I picked Creator Match for the blueprint because it carries the most data and API risk, and it's the asset we'd eventually commercialize. Proposal Copilot is a simpler version of the same pattern; it's in the appendix. The user never leaves Slack and Sheets, and every score explains itself. This card is real output from the workflow running on demo data.</aside>
+</section>
+
+<!-- ============================== 11 ARCHITECTURE ============================== -->
+<section class="slide" data-section="Task 2 · Architecture">
+  <div class="kicker r">Task 2 · Architecture and data flow</div>
+  <h2 class="t r" style="--d:1">Low-code on top, our data underneath</h2>
+  <div class="body">
+    <div class="arch r" style="--d:2">
+      <div class="col"><div class="lab m">1 · Sources</div>
+        <div class="chip"><b>Instagram Graph API v26.0</b>Business Discovery: public metrics</div>
+        <div class="chip"><b>Creator OAuth (Creator House)</b>IG demographics, TikTok Display API</div>
+        <div class="chip"><b>YouTube Data API v3</b>channels.list statistics</div>
+        <div class="chip"><b>Internal history</b>roster, past results, rates</div>
+        <div class="chip"><b>Vendor or TikTok One</b>audiences of non-consented creators</div>
+      </div>
+      <div class="col"><div class="lab m">2 · Ingest</div>
+        <div class="chip"><b>n8n CM-02, nightly</b>refreshes stale profiles, rate-limit aware</div>
+        <div class="chip"><b>DA connectors</b>ad platforms and commerce reports</div>
+        <div class="chip y"><b>Claude Haiku 5.5 batches</b>caption tags and comment sentiment, 50% cheaper</div>
+      </div>
+      <div class="col"><div class="lab s">3 · Store</div>
+        <div class="chip s"><b>BigQuery</b>raw, then staging, then marts (Dataform)</div>
+        <div class="chip s"><b>Marts</b>dim_creator, creator_metrics, creator_audience, campaign_performance</div>
+        <div class="chip s"><b>Governance tables</b>consent_registry, match_feedback, ai_run_log</div>
+      </div>
+      <div class="col"><div class="lab">4 · Intelligence</div>
+        <div class="chip y"><b>n8n CM-01</b>orchestrates each brief</div>
+        <div class="chip y"><b>Claude Sonnet 5.5</b>brief parsing and brand-fit judge, JSON schema</div>
+        <div class="chip"><b>Rules and scoring (code)</b>hard rules, weights, diversity, budget</div>
+        <div class="chip"><b>OpenAI fallback</b>second vendor if Claude fails</div>
+      </div>
+      <div class="col"><div class="lab m">5 · Deliver</div>
+        <div class="chip"><b>Slack</b>form, approvals, alerts</div>
+        <div class="chip"><b>Google Sheets</b>the shortlist</div>
+        <div class="chip"><b>Google Slides</b>via Proposal Copilot</div>
+        <div class="chip"><b>Looker Studio</b>usage, cost, quality</div>
+      </div>
+    </div>
+    <div class="loop r" style="--d:3"><span class="arr">FEEDBACK LOOP</span>Every keep and remove, every override reason, and every campaign outcome flows back to BigQuery, which drives better weights, prompts and evals.</div>
+    <div class="g3">
+      <div class="card r" style="--d:4"><div class="lab">Why these models</div><p>Thai-language quality, <b>proven on our eval set</b>, not assumed. Reliable JSON via structured outputs. No open-source models in v1: self-hosting them needs engineers we don't have.</p></div>
+      <div class="card r" style="--d:5"><div class="lab">Why n8n</div><p>Self-hosted, so data stays under our control (PDPA). Code nodes and Slack approvals built in. Make bills per module run, so a loop over 60 creators multiplies cost. LangChain needs engineers.</p></div>
+      <div class="card hl r" style="--d:6"><div class="lab">Design rule</div><p><b>The model is a config value. The data model is the asset.</b> Prompts and schemas are versioned, and vendors can change without a rebuild.</p></div>
+    </div>
+  </div>
+  <aside class="notes">Five layers, left to right. Public metrics need no consent; audience demographics need the creator's own OAuth grant, which is why Creator House onboarding is on the critical path. BigQuery is the only place scoring reads from, so API changes never break scoring. Models are swappable; our data model is the asset. If asked about alternatives: Make would work and the logic carries over, but it bills per module run. LangChain is a code framework, so it needs engineers we don't have. Open-source models become an option in Year 2 if cost or data residency calls for them.</aside>
+</section>
+
+<!-- ============================== 12 N8N LOGIC ============================== -->
+<section class="slide s-n8n" data-section="Task 2 · Exact logic">
+  <div class="kicker r">Task 2 · The exact logic in n8n</div>
+  <h2 class="t r" style="--d:1">CM-01: brief to shortlist in about 20 nodes</h2>
+  <div class="body">
+    <div class="shot r" style="--d:2" id="shot">
+      <img src="assets/n8n-cm01.png" alt="n8n CM-01 workflow" onload="this.parentNode.classList.add('has-img')" onerror="this.remove()">
+      <svg class="fallback" viewBox="0 0 1168 262" role="img" aria-label="CM-01 workflow map">
+        <defs>
+          <pattern id="dots" width="16" height="16" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="#2b2f23"/></pattern>
+          <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#73776a"/></marker>
+        </defs>
+        <rect width="1168" height="262" fill="url(#dots)"/>
+        <g fill="rgba(255,255,255,.02)" stroke="#2b2f23">
+          <rect x="10" y="10" width="364" height="242" rx="10"/><rect x="384" y="10" width="252" height="242" rx="10"/>
+          <rect x="646" y="10" width="188" height="242" rx="10"/><rect x="844" y="10" width="314" height="242" rx="10"/>
+        </g>
+        <g font-family="JetBrains Mono, monospace" font-size="10.5" fill="#f4e04d" letter-spacing="1">
+          <text x="24" y="32">1 · INTAKE</text><text x="398" y="32">2 · RETRIEVE &amp; SCORE</text><text x="660" y="32">3 · JUDGE</text><text x="858" y="32">4 · DELIVER &amp; LEARN</text>
+        </g>
+        <g stroke="#73776a" stroke-width="1.5" marker-end="url(#ar)">
+          <line x1="68" y1="112" x2="92" y2="112"/><line x1="138" y1="112" x2="162" y2="112"/><line x1="208" y1="112" x2="232" y2="112"/><line x1="278" y1="112" x2="302" y2="112"/>
+          <line x1="348" y1="112" x2="397" y2="112"/><line x1="443" y1="112" x2="482" y2="112"/><line x1="528" y1="112" x2="567" y2="112"/><line x1="613" y1="112" x2="672" y2="112"/>
+          <line x1="718" y1="112" x2="757" y2="112"/><line x1="803" y1="112" x2="855" y2="112"/><line x1="901" y1="112" x2="921" y2="112"/><line x1="967" y1="112" x2="987" y2="112"/>
+          <line x1="1033" y1="112" x2="1053" y2="112"/><line x1="1099" y1="112" x2="1111" y2="112"/>
+        </g>
+        <g stroke="#ff8f4d" stroke-width="1.5" stroke-dasharray="4 4" fill="none">
+          <path d="M185 135 L185 177"/><path d="M325 135 L325 177"/><path d="M1076 135 L1076 177"/>
+        </g>
+        <g font-family="JetBrains Mono, monospace" font-size="9.5" text-anchor="middle">
+          <g><rect x="22" y="89" width="46" height="46" rx="9" fill="#1f2219" stroke="#3d4232"/><text x="45" y="116" fill="#f3f1e7">FORM</text></g>
+          <g><rect x="92" y="89" width="46" height="46" rx="9" fill="#1f2219" stroke="#3d4232"/><text x="115" y="116" fill="#f3f1e7">IF</text></g>
+          <g><rect x="162" y="89" width="46" height="46" rx="9" fill="#1f2219" stroke="#f4e04d" stroke-width="1.6"/><text x="185" y="116" fill="#f4e04d">LLM</text></g>
+          <g><rect x="232" y="89" width="46" height="46" rx="9" fill="#1f2219" stroke="#3d4232"/><text x="255" y="116" fill="#f3f1e7">JS</text></g>
+          <g><rect x="302" y="89" width="46" height="46" rx="9" fill="#1f2219" stroke="#3d4232"/><text x="325" y="116" fill="#f3f1e7">IF</text></g>
+          <g><rect x="397" y="89" width="46" height="46" rx="9" fill="#1f2219" stroke="#7cc4ff" stroke-width="1.4"/><text x="420" y="116" fill="#7cc4ff">BQ</text></g>
+          <g><rect x="482" y="89" width="46" height="46" rx="9" fill="#1f2219" stroke="#3d4232"/><text x="505" y="116" fill="#f3f1e7">JS</text></g>
+          <g><rect x="567" y="89" width="46" height="46" rx="9" fill="#1f2219" stroke="#3d4232"/><text x="590" y="116" fill="#f3f1e7">SUB</text></g>
+          <g><rect x="672" y="89" width="46" height="46" rx="9" fill="#1f2219" stroke="#f4e04d" stroke-width="1.6"/><text x="695" y="116" fill="#f4e04d">LLM</text></g>
+          <g><rect x="757" y="89" width="46" height="46" rx="9" fill="#1f2219" stroke="#3d4232"/><text x="780" y="116" fill="#f3f1e7">JS</text></g>
+          <g><rect x="855" y="89" width="46" height="46" rx="9" fill="#1f2219" stroke="#3d4232"/><text x="878" y="116" fill="#f3f1e7">JS</text></g>
+          <g><rect x="921" y="89" width="46" height="46" rx="9" fill="#1f2219" stroke="#3d4232"/><text x="944" y="116" fill="#f3f1e7">GS</text></g>
+          <g><rect x="987" y="89" width="46" height="46" rx="9" fill="#1f2219" stroke="#3d4232"/><text x="1010" y="116" fill="#f3f1e7">SLK</text></g>
+          <g><rect x="1053" y="89" width="46" height="46" rx="9" fill="#1f2219" stroke="#3d4232"/><text x="1076" y="116" fill="#f3f1e7">IF</text></g>
+          <g><rect x="1111" y="89" width="40" height="46" rx="9" fill="#1f2219" stroke="#7cc4ff" stroke-width="1.4"/><text x="1131" y="116" fill="#7cc4ff">BQ</text></g>
+          <g><rect x="162" y="177" width="46" height="40" rx="9" fill="#1f2219" stroke="#ff8f4d" stroke-dasharray="4 3"/><text x="185" y="201" fill="#ff8f4d">LLM</text></g>
+          <g><rect x="302" y="177" width="46" height="40" rx="9" fill="#1f2219" stroke="#ff8f4d" stroke-dasharray="4 3"/><text x="325" y="201" fill="#ff8f4d">SLK</text></g>
+          <g><rect x="1053" y="177" width="46" height="40" rx="9" fill="#1f2219" stroke="#ff8f4d" stroke-dasharray="4 3"/><text x="1076" y="201" fill="#ff8f4d">SLK</text></g>
+        </g>
+        <g font-size="10" fill="#b0b3a3" text-anchor="middle">
+          <text x="45" y="152">Brief form</text><text x="115" y="152">PDF?</text><text x="185" y="81">Claude: parse</text><text x="255" y="152">Validate</text><text x="325" y="81">Gaps?</text>
+          <text x="420" y="152">BigQuery</text><text x="505" y="152">Score</text><text x="590" y="152">Refresh</text><text x="590" y="164">(CM-02)</text>
+          <text x="695" y="152">Claude: judge</text><text x="780" y="152">Merge</text>
+          <text x="878" y="152">Rank +</text><text x="878" y="164">rules</text><text x="944" y="152">Drive +</text><text x="944" y="164">Sheet</text><text x="1010" y="152">Slack</text><text x="1010" y="164">approve</text><text x="1076" y="81">Approved?</text><text x="1131" y="152">Log +</text><text x="1131" y="164">PC-01</text>
+          <text x="185" y="232">OpenAI fallback</text><text x="325" y="232">Ask for gaps</text><text x="1076" y="232">What changed?</text>
+        </g>
+        <g font-family="JetBrains Mono, monospace" font-size="9.5">
+          <rect x="398" y="200" width="10" height="10" rx="2" fill="none" stroke="#f4e04d"/><text x="414" y="209" fill="#b0b3a3">LLM call</text>
+          <rect x="484" y="200" width="10" height="10" rx="2" fill="none" stroke="#ff8f4d" stroke-dasharray="3 2"/><text x="500" y="209" fill="#b0b3a3">fallback / ask path</text>
+          <rect x="398" y="220" width="10" height="10" rx="2" fill="none" stroke="#7cc4ff"/><text x="414" y="229" fill="#b0b3a3">BigQuery read / write</text>
+        </g>
+      </svg>
+    </div>
+    <div class="stages">
+      <div class="card r" style="--d:3"><div class="lab">1 · Intake</div><p>Form Trigger, or a PDF via Extract From File. Then HTTP <code>POST api.anthropic.com/v1/messages</code> with <code>claude-sonnet-5-5</code> and <code>output_config.format</code> set to a JSON schema. Code validates the result; gaps go back to the requester through Slack Send and Wait. On error, the fallback is OpenAI <code>/v1/responses</code>.</p></div>
+      <div class="card r" style="--d:4"><div class="lab">2 · Retrieve and score</div><p>BigQuery GoogleSQL applies the <b>hard rules</b>: platform, consent, not blocked, no competitor work in 90 days. Code scores performance (Bayesian-shrunk history plus engagement vs tier), audience fit and cost per engagement. CM-02 refreshes stale profiles.</p></div>
+      <div class="card r" style="--d:5"><div class="lab">3 · Judge</div><p>One Claude call per creator, in batches of 5, 1 s apart. It returns brand fit 0-100, a rationale citing posts, risk flags and confidence. A failed call becomes <b>"not assessed"</b> and never blocks the shortlist.</p></div>
+      <div class="card r" style="--d:6"><div class="lab">4 · Deliver and learn</div><p>Weights by objective, budget fit, at least one rising creator, flags shown and never dropped. Then Drive copy and Sheets, then Slack Send and Wait (approval, restricted approvers), then Proposal Copilot. Every decision is logged to BigQuery.</p></div>
+    </div>
+  </div>
+  <aside class="notes">This is the exact flow I'd configure, and the importable workflow exists with demo data. Hard rules run in SQL before any AI. The LLM does two narrow jobs: parse the brief and judge brand fit, both with a JSON schema so the output is machine-checkable. Everything that leaves the system goes through a human approval in Slack.</aside>
+</section>
+
+<!-- ============================== 13 FAILURES + COST ============================== -->
+<section class="slide" data-section="Task 2 · Failure handling">
+  <div class="kicker r">Task 2 · When things break</div>
+  <h2 class="t r" style="--d:1">Degrade gracefully, fail loudly to ops, never silently to users</h2>
+  <div class="body">
+    <div class="fail">
+      <div class="r" style="--d:2">
+        <table class="tbl tight">
+          <thead><tr><th style="width:30%">Failure</th><th style="width:24%">How we detect it</th><th>Response</th></tr></thead>
+          <tbody>
+            <tr><td class="k">Timeout: 60 s for LLM, 30 s for social APIs</td><td>HTTP Request timeout</td><td>Retry 3 times, 5 s apart. Then the fallback model, or cached data labeled "data as of".</td></tr>
+            <tr><td class="k">Rate limit: 429, or Meta codes 4, 17, 32, 613, 80002</td><td>Status, error code, usage headers at 80%+</td><td>Stop that branch and defer the rest to the next run. Never hammer the API.</td></tr>
+            <tr><td class="k">Server error: 5xx, Anthropic 529</td><td>Status</td><td>Retry, then switch vendor. Alert if more than 5% of a day's calls fail.</td></tr>
+            <tr><td class="k">Auth: 401 / 403, Meta code 190</td><td>Status, error code</td><td>No retry. Alert the token owner and send the creator a reconnect link.</td></tr>
+            <tr><td class="k">Bad input: 400 / 404 (handle changed, personal account)</td><td>Status</td><td>No retry. Flag the record for the talent team to fix.</td></tr>
+            <tr><td class="k">LLM refusal or invalid JSON</td><td><code>stop_reason</code>, schema check</td><td>One repair prompt, then the fallback model, then "not assessed".</td></tr>
+            <tr><td class="k">Some creators fail, others succeed</td><td>Per-item error output</td><td>Continue with the rest. Show the flags in the shortlist.</td></tr>
+          </tbody>
+        </table>
+        <div class="callout" style="margin-top:12px;font-size:13px">Every workflow's error workflow is <b>OPS-01</b>: a Slack <code>#ai-ops</code> alert, a dead-letter table, then retries at 5 min, 30 min and 2 h before a human picks it up.</div>
+      </div>
+      <div class="card hl r" style="--d:3">
+        <div class="lab">Cost per shortlist</div>
+        <div class="big">$0.35</div>
+        <div class="src" style="margin:4px 0 12px">about THB 12</div>
+        <div class="kv"><span>Brief parsing (Sonnet 5.5)</span><b>$0.03</b></div>
+        <div class="kv"><span>20 brand-fit calls</span><b>$0.32</b></div>
+        <div class="kv"><span>Nightly tagging (Haiku 5.5, batch)</span><b>&lt; $10 / mo</b></div>
+        <div class="kv"><span>n8n VM + BigQuery</span><b>tens of $ / mo</b></div>
+        <div class="kv" style="border-bottom:0"><span><b style="font-family:var(--display);font-size:13px">Total run cost</b></span><b>&lt; $100 / mo</b></div>
+        <p style="margin-top:12px">Against about <b>90 strategist-hours saved a month</b> (20 briefs x 4.5 h), before counting better campaign results.</p>
+        <div class="src" style="margin-top:10px">Prices per million tokens, Oct 2026: Sonnet 5.5 $2 in / $10 out; Haiku 5.5 $0.10 / $0.50.</div>
+      </div>
+    </div>
+  </div>
+  <aside class="notes">Each failure type gets a different response: wait, retry, fall back, or ask a human. Users never see a silent failure, and ops always gets an alert with the execution link. n8n's built-in retry tops out at 5 tries and 5-second waits, so longer backoff runs through the dead-letter retries. Cost is trivial: about 35 cents per shortlist.</aside>
+</section>

@@ -1,0 +1,139 @@
+
+<!-- ============================== A1 SCORE RATIONALE ============================== -->
+<section class="slide appx roomy" data-section="Appendix">
+  <div class="kicker r">Appendix A1 · Score rationale</div>
+  <h2 class="t r" style="--d:1">Why each use case scored what it did</h2>
+  <div class="body">
+    <table class="tbl tight r" style="--d:2">
+      <thead><tr><th style="width:21%">Use case · scores (I / F / M / S / A)</th><th>Rationale</th></tr></thead>
+      <tbody>
+        <tr><td class="k">Campaign Proposal<br><span class="mono" style="color:var(--lemon);font-weight:400">4 / 5 / 3 / 5 / 4</span></td><td>Every new-business and upsell baht passes through a proposal, and strategist hours are scarce (I4). Inputs already exist as documents, and LLM + Slides is a proven low-code pattern (F5). Deck generation is a commodity until it is grounded in our case studies and Match output (M3). v1 ships in 4-6 weeks (S5). It is an internal draft, reviewed before any client sees it (A4).</td></tr>
+        <tr><td class="k">Creator Selection Matrix<br><span class="mono" style="color:var(--lemon);font-weight:400">4 / 4 / 5 / 3 / 4</span></td><td>The first decision in every campaign; fit drives results and retention (I4). Transparent scoring plus an LLM brand-fit check, with no model training, but it needs the data mart (F4). The creator-performance graph is the most defensible asset we can own (M5). Gated by the data foundation, about 6-8 weeks (S3). It supports judgment rather than replacing it (A4).</td></tr>
+        <tr><td class="k">Campaign Optimization<br><span class="mono" style="color:var(--lemon);font-weight:400">4 / 3 / 4 / 3 / 3</span></td><td>Protects live results and automates reporting hours (I4). Needs ad, social and commerce pipelines, and any write action needs governance (F3). Its outcome and sales data trains Match and seeds the RMN (M4). It needs pipelines first (S3). Planners are data-literate, but spend changes carry risk (A3).</td></tr>
+        <tr><td class="k">Creator RMN<br><span class="mono" style="color:var(--lemon);font-weight:400">5 / 1 / 5 / 1 / 2</span></td><td>The biggest prize and the stated mission (I5, M5). But it is a data product with no data foundation, no engineers and no partner contracts yet (F1, S1). Commercial, legal and in-group data-sharing complexity (A2).</td></tr>
+        <tr><td class="k">Trend Monitoring<br><span class="mono" style="color:var(--lemon);font-weight:400">2 / 3 / 2 / 4 / 4</span></td><td>ROI is indirect and hard to attribute (I2). The best signals sit behind restricted APIs, and vendors exist (F3). Everyone sees the same public trends (M2). Vendor tools work today (S4). Low disruption (A4).</td></tr>
+        <tr><td class="k">DCO<br><span class="mono" style="color:var(--lemon);font-weight:400">3 / 2 / 2 / 2 / 1</span></td><td>A creator-led agency sells authenticity (I3). Production-grade generation plus approvals is heavy for low-code (F2). Platforms ship gen-AI creative natively (M2). The highest likeness and IP risk, and the most "AI replaces me" fear (A1).</td></tr>
+      </tbody>
+    </table>
+    <div class="src r" style="--d:3">I = impact, F = feasibility under our constraints, M = moat and compounding, S = speed to value, A = adoption and risk (5 = low risk). Base weights: 30 / 25 / 20 / 15 / 10.</div>
+  </div>
+  <aside class="notes">Backup for any "why a 4 and not a 5?" question.</aside>
+</section>
+
+<!-- ============================== A2 PROPOSAL COPILOT ============================== -->
+<section class="slide appx roomy" data-section="Appendix">
+  <div class="kicker r">Appendix A2 · Proposal Copilot (PC-01)</div>
+  <h2 class="t r" style="--d:1">The first release: a simpler version of the same pattern</h2>
+  <div class="body">
+    <div class="chain r" style="--d:2">
+      <span><b>Brief form or Slack</b></span><em>&#8594;</em>
+      <span><b>Claude parses the brief</b><br>JSON schema</span><em>&#8594;</em>
+      <span><b>SQL: top 10 past case studies</b><br>by category and objective</span><em>&#8594;</em>
+      <span><b>Claude drafts slide-by-slide JSON</b><br>with 3 Big Idea territories</span><em>&#8594;</em>
+      <span><b>Drive files.copy</b><br>master template</span><em>&#8594;</em>
+      <span><b>Slides batchUpdate</b><br>replaceAllText</span><em>&#8594;</em>
+      <span><b>Number-grounding check</b></span><em>&#8594;</em>
+      <span><b>Slack to the strategist</b><br>AI-DRAFT watermark</span><em>&#8594;</em>
+      <span><b>Log the AI content survival rate</b></span>
+    </div>
+    <div class="g3" style="margin-top:6px">
+      <div class="card r" style="--d:3"><div class="lab">Why no vector database in v1</div><p>With a 1M-token context, SQL filtering plus the full text of the top 10 case studies is enough. Add BigQuery <code>VECTOR_SEARCH</code> with <code>gemini-embedding-001</code> (supports Thai) when the library outgrows that.</p></div>
+      <div class="card r" style="--d:4"><div class="lab">Guardrails</div><p>Every figure in the deck must match a source row, or it is highlighted for review. The Big Idea is strategist-owned: AI offers 3 territories, never a final answer. Nothing goes to a client from the workflow.</p></div>
+      <div class="card r" style="--d:5"><div class="lab">Endpoints</div><p><code>POST googleapis.com/drive/v3/files/{id}/copy</code><br><code>POST slides.googleapis.com/v1/presentations/{id}:batchUpdate</code> with <code>replaceAllText</code> and <code>replaceAllShapesWithImage</code>.</p></div>
+    </div>
+    <div class="callout r" style="--d:6"><b>Success for v1:</b> a first draft in under a day instead of about three, and strategist edits concentrated on the Big Idea instead of formatting and research.</div>
+  </div>
+  <aside class="notes">Proposal Copilot ships first because it needs documents, not a data mart. Same skeleton as Creator Match: form, LLM with a schema, Google output, Slack approval, logging.</aside>
+</section>
+
+<!-- ============================== A3 CAMPAIGN PULSE ============================== -->
+<section class="slide appx roomy" data-section="Appendix">
+  <div class="kicker r">Appendix A3 · Campaign Pulse (CP-01)</div>
+  <h2 class="t r" style="--d:1">Recommend, approve, act, then learn from the result</h2>
+  <div class="body">
+    <div class="chain r" style="--d:2">
+      <span><b>Daily at 08:00</b></span><em>&#8594;</em>
+      <span><b>BigQuery</b><br>yesterday's ads, creator posts, sales</span><em>&#8594;</em>
+      <span><b>Rules vs targets</b><br>CPA, CPV, ER vs benchmark, fatigue</span><em>&#8594;</em>
+      <span><b>Claude explains</b><br>up to 3 actions, impact, confidence</span><em>&#8594;</em>
+      <span><b>Slack approval</b><br>to the planner</span><em>&#8594;</em>
+      <span><b>If approved and in guardrails</b><br>Meta POST /v26.0/{adset_id}</span><em>&#8594;</em>
+      <span><b>72 h later</b><br>did it work?</span><em>&#8594;</em>
+      <span><b>Outcomes to the creator graph</b></span>
+    </div>
+    <div class="g3" style="margin-top:6px">
+      <div class="card r" style="--d:3"><div class="lab">Data in</div><p>Meta <code>GET /v26.0/{adset_id}/insights?fields=spend,impressions,clicks,actions&amp;date_preset=yesterday&amp;level=ad</code>, TikTok API for Business reports, creator post metrics, and promo-code and affiliate sales. <b>The sales data is the RMN seed.</b></p></div>
+      <div class="card r" style="--d:4"><div class="lab">Guardrails</div><p>At most ±20% budget change a day, a 24 h cooldown, one-click revert, restricted approvers. Budgets are sent in minor units (THB offset 100). Nothing changes without a named approval.</p></div>
+      <div class="card r" style="--d:5"><div class="lab">Why it matters</div><p>Real outcomes turn Creator Match from "looks right" into "proven to sell", and they become case studies and benchmarks for Proposal Copilot.</p></div>
+    </div>
+    <div class="callout r" style="--d:6"><b>"Automated adjustments" in v1 means automated recommendations.</b> The machine prepares the change; a planner makes it. We loosen this only when the outcome data earns it.</div>
+  </div>
+  <aside class="notes">This is how I'd read "automated adjustments" responsibly: AI prepares, the planner approves, and every action is evaluated 72 hours later so we learn which recommendations to trust.</aside>
+</section>
+
+<!-- ============================== A4 API REFERENCE ============================== -->
+<section class="slide appx" data-section="Appendix">
+  <div class="kicker r">Appendix A4 · API reference</div>
+  <h2 class="t r" style="--d:1">Endpoints, access and limits</h2>
+  <div class="body">
+    <table class="tbl tight r" style="--d:2;font-size:11.4px">
+      <thead><tr><th style="width:15%">API</th><th style="width:48%">Request</th><th>Access and limits</th></tr></thead>
+      <tbody>
+        <tr><td class="k">Instagram Business Discovery</td><td><code>GET graph.facebook.com/v26.0/{our_ig_id}?fields=business_discovery.username({handle}){followers_count,media_count,media{caption,like_count,comments_count,timestamp,permalink}}</code></td><td>Business or Creator accounts only. <code>instagram_basic</code>, <code>instagram_manage_insights</code>, <code>pages_read_engagement</code>. App Review and Business Verification.</td></tr>
+        <tr><td class="k">Instagram audience</td><td><code>GET /v26.0/{creator_ig_id}/insights?metric=follower_demographics&amp;period=lifetime&amp;metric_type=total_value&amp;breakdown=age</code></td><td>The creator's own token (Creator House OAuth), 100+ followers. Watch <code>X-App-Usage</code> and <code>X-Business-Use-Case-Usage</code>; throttling codes 4, 17, 32, 613, 80002.</td></tr>
+        <tr><td class="k">TikTok Display API</td><td><code>GET open.tiktokapis.com/v2/user/info/?fields=follower_count,likes_count,video_count</code> · <code>POST /v2/video/list/</code> (max_count 20)</td><td>Consented creators via Login Kit: <code>user.info.stats</code>, <code>video.list</code>. The Research API excludes agencies.</td></tr>
+        <tr><td class="k">YouTube Data API v3</td><td><code>GET youtube/v3/channels?part=snippet,statistics&amp;id={channelId}</code></td><td>1 unit of a 10,000-unit daily quota. Demographics need the owner's OAuth (Analytics API).</td></tr>
+        <tr><td class="k">Meta Marketing API</td><td><code>GET /v26.0/{adset_id}/insights</code> · <code>POST /v26.0/{adset_id}</code> (daily_budget)</td><td>Business Manager access. Writes only after a human approval.</td></tr>
+        <tr><td class="k">Claude Messages API</td><td><code>POST api.anthropic.com/v1/messages</code> · <code>POST /v1/messages/batches</code></td><td><code>anthropic-version: 2026-10-21</code> (no temperature). <code>output_config.format</code> with a JSON schema. Handle <code>stop_reason: refusal</code>.</td></tr>
+        <tr><td class="k">OpenAI (fallback)</td><td><code>POST api.openai.com/v1/responses</code></td><td><code>text.format</code> json_schema. API data is not used for training by default.</td></tr>
+        <tr><td class="k">Google</td><td><code>POST /drive/v3/files/{id}/copy</code> · <code>POST /v1/presentations/{id}:batchUpdate</code> · <code>POST /bigquery/v2/projects/{p}/queries</code></td><td>Set <code>useLegacySql: false</code> for GoogleSQL.</td></tr>
+      </tbody>
+    </table>
+    <div class="src r" style="--d:3">Checked against official documentation on 29 Oct 2026. Graph API v26.0 was the latest version at the time.</div>
+  </div>
+  <aside class="notes">Backup for technical questions. The key design point: public metrics need no consent, but audience demographics require the creator's own OAuth grant, which is why Creator House onboarding matters.</aside>
+</section>
+
+<!-- ============================== A5 SCORING ============================== -->
+<section class="slide appx roomy" data-section="Appendix">
+  <div class="kicker r">Appendix A5 · Creator Match scoring</div>
+  <h2 class="t r" style="--d:1">A transparent formula, with starting weights to calibrate</h2>
+  <div class="body">
+    <div class="callout r" style="--d:2;font-family:var(--mono);font-size:13.5px">match = w<sub>perf</sub> x Performance + w<sub>aud</sub> x Audience fit + w<sub>brand</sub> x Brand fit + w<sub>cost</sub> x Cost efficiency &nbsp;(each 0-100)</div>
+    <div class="g2">
+      <div class="card r" style="--d:3"><div class="lab">Components</div>
+        <ul>
+          <li><b>Performance:</b> 70% campaign history vs benchmark, Bayesian-shrunk (k = 3) so one lucky campaign doesn't dominate, plus 30% engagement vs tier median.</li>
+          <li><b>Audience fit:</b> the share of the creator's audience matching the brief's age, gender and location, from consented demographics or a vendor.</li>
+          <li><b>Brand fit:</b> Claude's 0-100 judgement from recent captions, tags and comment sentiment, citing posts. If it can't be assessed, audience fit stands in and the row is flagged "not assessed".</li>
+          <li><b>Cost efficiency:</b> the creator's cost per expected engagement compared with the category benchmark.</li>
+        </ul>
+      </div>
+      <div class="card r" style="--d:4"><div class="lab">Starting weights by objective</div>
+        <table class="tbl tight" id="weights"><thead><tr><th>Objective</th><th class="num">Perf.</th><th class="num">Aud.</th><th class="num">Brand</th><th class="num">Cost</th></tr></thead><tbody></tbody></table>
+        <p id="weights-why" style="margin-top:10px;font-size:12px"></p>
+      </div>
+    </div>
+    <div class="card r" style="--d:5;padding:11px 16px"><p><b>Rules around the score:</b> hard rules first (consent, blocked, competitor work in 90 days, rate cap of 1.2x budget per creator). Then budget fit, at least one rising creator, and flags shown, never dropped. Weights are calibrated with CDs in the pilot, then against campaign outcomes.</p></div>
+  </div>
+  <aside class="notes">If asked why these weights: sales briefs reward proven conversion, awareness rewards reaching the right audience, and community briefs live or die on tone. They are starting points. The pilot calibrates them with CDs, then campaign outcomes calibrate them for real.</aside>
+</section>
+
+<!-- ============================== A6 Q&A ============================== -->
+<section class="slide appx roomy" data-section="Appendix">
+  <div class="kicker r">Appendix A6 · Likely questions</div>
+  <h2 class="t r" style="--d:1">Short answers to the hard questions</h2>
+  <div class="body">
+    <div class="qa r" style="--d:2">
+      <div><b>"RMN is our strategy. Why not first?"</b>It's a data product that needs a clean creator graph, commerce attribution, consent and engineers. Phase 1 produces the first three as by-products, so Year 2 starts well ahead instead of from zero.</div>
+      <div><b>"How do you get audience data without scraping?"</b>Public metrics via Business Discovery. Demographics via creator OAuth through Creator House, in exchange for insights. A vendor or TikTok One for the rest. Never scraping.</div>
+      <div><b>"What if Meta or TikTok change their APIs?"</b>External data lands in BigQuery through one refresh workflow per platform, and scoring reads only from the marts. Pin versions, watch changelogs, keep a vendor fallback.</div>
+      <div><b>"Won't it always pick the same big creators?"</b>Tier normalization, Bayesian shrinkage, a rising-creator rule, cost per engagement instead of follower count, and monitoring of how picks spread across tiers.</div>
+      <div><b>"How do you know the LLM is any good?"</b>A golden set of 30-50 past briefs: overlap with expert picks, brand-safety recall, rationale faithfulness, JSON validity. It gates every prompt or model change.</div>
+      <div><b>"What if the analysts get pulled into reporting?"</b>Campaign Pulse automates part of reporting to buy their time back, and the 70% allocation is my first ask.</div>
+      <div><b>"Isn't no-code a bus-factor risk?"</b>Workflows exported to Git, naming conventions, a runbook, analysts cross-trained, and OPS-01 monitoring with alerts.</div>
+      <div><b>"What if the CDs refuse?"</b>No mandate. Volunteers first, shadow mode, take away the work they hate, let peers show the results, and respect the off switch.</div>
+    </div>
+  </div>
+  <aside class="notes">Backup answers. Keep each to two sentences when asked live.</aside>
+</section>

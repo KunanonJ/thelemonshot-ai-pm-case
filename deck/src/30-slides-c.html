@@ -1,0 +1,208 @@
+
+<!-- ============================== 14 BUILD VS BUY ============================== -->
+<section class="slide" data-section="Task 3 · Build vs Buy">
+  <div class="kicker r">Task 3 · Build vs buy</div>
+  <h2 class="t r" style="--d:1">Rent the model, own the memory</h2>
+  <div class="body">
+    <div class="bvb">
+      <div class="card r" style="--d:2">
+        <div class="lab o">Gates first: pass or fail</div>
+        <div class="gate">Commercialization rights: can we embed or resell it in a client-facing product?</div>
+        <div class="gate">No training on, or pooling of, our data, client data or creator data.</div>
+        <div class="gate">A PDPA-compliant DPA with cross-border safeguards.</div>
+        <div class="lab" style="margin-top:14px">Then weighted criteria</div>
+        <div class="crit">
+          <span>Differentiation: is it our moat?</span><span class="bar2"><i style="width:100%"></i></span><span class="pct">25%</span>
+          <span>Data rights and portability</span><span class="bar2"><i style="width:80%"></i></span><span class="pct">20%</span>
+          <span>Time-to-value vs our capacity</span><span class="bar2"><i style="width:60%"></i></span><span class="pct">15%</span>
+          <span>3-year total cost</span><span class="bar2"><i style="width:60%"></i></span><span class="pct">15%</span>
+          <span>Integration: APIs, BigQuery, n8n</span><span class="bar2"><i style="width:40%"></i></span><span class="pct">10%</span>
+          <span>Security and compliance</span><span class="bar2"><i style="width:40%"></i></span><span class="pct">10%</span>
+          <span>Vendor viability and exit</span><span class="bar2"><i style="width:20%"></i></span><span class="pct">5%</span>
+        </div>
+      </div>
+      <div class="r" style="--d:3">
+        <table class="tbl tight">
+          <thead><tr><th style="width:33%">Layer (Creator Match)</th><th style="width:20%">Decision</th><th>Why</th></tr></thead>
+          <tbody>
+            <tr><td class="k">LLM</td><td><span class="tag">Buy · 2 vendors</span></td><td>A commodity that improves monthly. Keep the switching cost low.</td></tr>
+            <tr><td class="k">Orchestration</td><td><span class="tag">Buy · n8n</span></td><td>Fits a team with no engineers. Self-hosted, so data stays with us.</td></tr>
+            <tr><td class="k">Warehouse</td><td><span class="tag">Buy · BigQuery</span></td><td>Serverless and cheap at our scale.</td></tr>
+            <tr><td class="k">Public creator data and fraud signals</td><td><span class="tag s">Buy or partner</span></td><td>A vendor or TikTok One gives fast coverage. Not a moat.</td></tr>
+            <tr><td class="k">Consented first-party creator data</td><td><span class="tag y">Build</span></td><td>Creator House OAuth. Competitors can't copy it.</td></tr>
+            <tr><td class="k">Creator graph, scoring, feedback labels</td><td><span class="tag y">Build</span></td><td>The moat. It compounds with every campaign.</td></tr>
+            <tr><td class="k">Client-facing product (Year 2)</td><td><span class="tag y">Build</span> <span class="tag">or white-label</span></td><td>Commercializing means owning the UX and the data. White-label only with resale rights.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="lab r" style="--d:4;margin:2px 0 -6px">Path to commercialization</div>
+    <div class="path r" style="--d:5">
+      <div class="now"><b>Phase 1</b>Internal tool: hours back, better picks</div>
+      <div><b>End of Phase 1</b>A "Creator Match report" inside every proposal</div>
+      <div><b>Year 2</b>A paid creator-intelligence add-on or retainer</div>
+      <div><b>Year 2+</b>RMN measurement: creator traffic to retail sales</div>
+    </div>
+  </div>
+  <aside class="notes">Gates first, because a vendor that trains on our creators' data or forbids resale is a no regardless of score. Then the weighted criteria, with differentiation weighted highest. The rule of thumb: buy where the market commoditizes fast, build what compounds with every campaign. Creator Match shows both: we rent the model and own the creator graph. That's also the commercialization path.</aside>
+</section>
+
+<!-- ============================== 15 RISKS ============================== -->
+<section class="slide roomy" data-section="Task 3 · Risks">
+  <div class="kicker r">Task 3 · Risks I must control</div>
+  <h2 class="t r" style="--d:1">Three risks to control before any third-party gen AI touches client work</h2>
+  <div class="body">
+    <div class="g3">
+      <div class="card risk r" style="--d:2">
+        <div class="n">01</div><h3>Creator likeness and personality rights</h3>
+        <div class="sub">Risk</div><p>A vendor tool reproduces a creator's face, voice or style beyond what they agreed to, or trains on creator assets. Our celebrity network raises the stakes.</p>
+        <div class="sub">Controls</div>
+        <ul>
+          <li><b>AI Likeness Rider:</b> opt-in per use, payment for synthetic variants, approval rights, a kill switch, no vendor training.</li>
+          <li><b>Consent registry checked in code</b> before any generative step that touches creator assets.</li>
+          <li><b>Platform labels:</b> TikTok, YouTube and Meta AI-disclosure rules.</li>
+        </ul>
+      </div>
+      <div class="card risk r" style="--d:3">
+        <div class="n">02</div><h3>Synthetic media licensing and output IP</h3>
+        <div class="sub">Risk</div><p>Clients receive AI-generated assets whose ownership is unclear, or that infringe third-party IP through the vendor's training data.</p>
+        <div class="sub">Controls</div>
+        <ul>
+          <li><b>Vendor contract:</b> output ownership to us or the client, IP indemnity, a warranty that training data is licensed.</li>
+          <li><b>Asset register:</b> model, prompt, human edits and approvals, plus C2PA credentials where supported.</li>
+          <li><b>Client contracts</b> disclose AI use and allocate risk.</li>
+        </ul>
+      </div>
+      <div class="card risk r" style="--d:4">
+        <div class="n">03</div><h3>Training-data privacy and client confidentiality</h3>
+        <div class="sub">Risk</div><p>A vendor retains or trains on briefs, personal data or results. With 750+ brands, data could leak between competing clients through shared retrieval.</p>
+        <div class="sub">Controls</div>
+        <ul>
+          <li><b>Contract terms:</b> no training, limited retention, a DPA, PDPA cross-border safeguards.</li>
+          <li><b>Minimize:</b> send aggregates, redact personal data, and <b>isolate each client</b> in retrieval.</li>
+          <li><b>Operate:</b> role-based access, audit logs, a DPIA before go-live.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="callout r" style="--d:5"><b>Principle:</b> consent and confidentiality are enforced in code, not in a policy document. If the registry says no, the workflow cannot run.</div>
+  </div>
+  <aside class="notes">These must be in place before any third-party generative platform enters client work, which is also why DCO waits. The most agency-specific risk is number three: we serve competing brands, so a shared AI memory could leak one client's strategy into another's proposal. Retrieval is isolated per client, by design.</aside>
+</section>
+
+<!-- ============================== 16 ROLLOUT ============================== -->
+<section class="slide roomy" data-section="Task 4 · Go-to-market">
+  <div class="kicker r">Task 4 · Go-to-market and change management</div>
+  <h2 class="t r" style="--d:1">Earn adoption squad by squad</h2>
+  <div class="body">
+    <div class="chips r" style="--d:2"><span>Embed, don't add</span><span>Start with the work people hate</span><span>Co-design with skeptics</span><span>Prove it with their own briefs</span><span>Time back goes to creative work</span></div>
+    <div class="tl r" style="--d:3;margin-top:16px">
+      <div class="card"><div class="when">Weeks 1-4 · Discover</div><h3>Listen first</h3><p>Shadow 8 users across strategy, creative, media and talent. Run the time study. Form a design council that includes the <b>most respected skeptical CD</b>. Co-write the "AI must never..." list.</p></div>
+      <div class="card"><div class="when">Months 1-2 · Shadow pilot</div><h3>Prove it safely</h3><p>One squad on social-commerce clients, where outcomes are measurable. AI runs alongside the manual process. <b>Nothing reaches a client</b> until the squad says it's useful.</p></div>
+      <div class="card"><div class="when">Months 2-4 · Champions</div><h3>Let users sell it</h3><p>One champion per squad. A weekly 15-minute show-and-tell <b>run by users, not by me</b>. "AI Clinic" office hours, borrowing the Creator Clinic idea. A public "you said, we changed" log.</p></div>
+      <div class="card"><div class="when">Months 4-6 · Scale</div><h3>Make it the default</h3><p>Squad-by-squad onboarding: 30 minutes plus a playbook. Leaders use the tools in pitch reviews. AI-assisted wins are recognized at town halls. Default on, still optional.</p></div>
+    </div>
+    <div class="g2" style="margin-top:6px">
+      <div class="card r" style="--d:4"><div class="lab">Messaging</div><p><b>"Less admin, more ideas."</b> Never framed as headcount reduction. Leadership says out loud that time saved is reinvested in creative work.</p></div>
+      <div class="card r" style="--d:5"><div class="lab">Incentives</div><p>Credit goes to the strategist on every win. People who give feedback and labels are recognized. AI use shows up in reviews as craft, not as compliance.</p></div>
+    </div>
+  </div>
+  <aside class="notes">Change management is product work. Start with the work people hate, prove it on their own briefs in shadow mode, and let users, not me, do the demos. The skeptical CD on the design council is deliberate: if they help write the rules, the floor trusts the rules.</aside>
+</section>
+
+<!-- ============================== 17 HITL ============================== -->
+<section class="slide roomy" data-section="Task 4 · Human in the loop">
+  <div class="kicker r">Task 4 · Human-in-the-loop design</div>
+  <h2 class="t r" style="--d:1">Empowerment by design: guardrails, overrides, feedback</h2>
+  <div class="body">
+    <div class="g3 hitl">
+      <div class="card r" style="--d:2"><h3><i>G</i>Product guardrails</h3>
+        <ul>
+          <li><b>Evidence or silence.</b> Every score shows its breakdown, sources and data date. Thin data gets "low confidence", never a guess.</li>
+          <li><b>Hard rules run before the AI.</b> Exclusions, consent, blocked creators and budget caps are code the LLM cannot override.</li>
+          <li><b>No autonomous outward actions.</b> Clients, creators and spend each need a named approval, with an audit trail.</li>
+          <li><b>Spend caps in Pulse:</b> at most ±20% a day, a 24 h cooldown, one-click revert.</li>
+          <li><b>AI-DRAFT watermark</b> until a human marks each section reviewed.</li>
+        </ul>
+      </div>
+      <div class="card r" style="--d:3"><h3><i>O</i>Creative override controls</h3>
+        <ul>
+          <li>Swap, remove, add or reorder any creator. Edit anything. Regenerate a section with an instruction.</li>
+          <li><b>Human-owned zones:</b> the Big Idea and creative territories belong to the strategist. AI offers options only on request.</li>
+          <li><b>Tune the matrix</b> per brief with presets like "proven sales" or "rising creators".</li>
+          <li>One-click override reasons. <b>Never penalized.</b> The human choice is the decision of record.</li>
+          <li>An <b>off switch</b> per brief for any squad lead.</li>
+        </ul>
+      </div>
+      <div class="card r" style="--d:4"><h3><i>F</i>Active feedback loops</h3>
+        <ul>
+          <li>Inline keep or remove with a reason, and a rating on each rationale.</li>
+          <li>Weekly prompt and weight updates, published as "you said, we changed".</li>
+          <li><b>Outcome calibration:</b> predicted vs actual for AI-picked and human-added creators. Used to learn, never to grade people.</li>
+          <li>A monthly <b>AI Council</b> with CDs reviews edge cases and approves weight changes.</li>
+          <li>A golden set of 30-50 past briefs gates every prompt or model change.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="callout r" style="--d:5">The AI earns trust by being <b>checkable</b>, <b>overridable</b> and <b>visibly improving</b>. A Creative Director should feel like the editor, never the reviewer of a machine.</div>
+  </div>
+  <aside class="notes">Three layers. Guardrails the AI can't break, because they're code, not prompts. Overrides that are one click and never penalized, so disagreeing with the AI is cheap. Feedback loops that visibly change the product every week, which is what turns skeptics into contributors.</aside>
+</section>
+
+<!-- ============================== 18 METRICS ============================== -->
+<section class="slide roomy" data-section="Task 4 · Success metrics">
+  <div class="kicker r">Task 4 · Proof on the floor</div>
+  <h2 class="t r" style="--d:1">Two metrics that prove adoption, not activity</h2>
+  <div class="body">
+    <div class="mx">
+      <div class="card hl r" style="--d:2">
+        <div class="lab">Quantitative · adoption</div>
+        <div class="name">AI-assisted brief coverage</div>
+        <div class="def">The share of new briefs whose final client proposal used Creator Match or Proposal Copilot output. Tracked automatically through the request ID.</div>
+        <div class="tiles"><div class="tile"><div class="v">50%</div><div class="l">pilot squad · M3</div></div><div class="tile"><div class="v">70%</div><div class="l">pilot squads · M6</div></div><div class="tile"><div class="v">40%</div><div class="l">agency-wide · M6</div></div></div>
+        <div class="def"><b style="color:var(--text)">Why this one:</b> it counts real work flowing through the tool, not logins. Use is voluntary, and the number is hard to fake.</div>
+        <div class="src" style="margin-top:10px">Health checks: acceptance of AI picks stays within 40-80% · zero client-facing AI factual errors · first proposal draft in under a day.</div>
+      </div>
+      <div class="card r" style="--d:3">
+        <div class="lab">Qualitative · trust</div>
+        <div class="name">Creative Confidence</div>
+        <div class="def">A monthly 3-question pulse, plus 6 interviews with CDs and strategists.</div>
+        <div class="qs"><div>"It makes my work better, not just faster."</div><div>"I trust it enough to show my CD or client."</div><div>"What would you miss if it disappeared?"</div></div>
+        <div class="def"><b style="color:var(--text)">Success:</b> CDs describe it as empowerment ("time back", "a better starting point"), not threat or admin, in their own words. At least 70% agree with the first statement by M6, and 3+ squads ask for access unprompted.</div>
+      </div>
+    </div>
+    <div class="kill r" style="--d:4"><b>Kill / pivot rule</b><span>If pilot coverage is under 25% at month 3, or the pulse says "admin burden", pause the rollout and fix the product. Don't push harder.</span></div>
+  </div>
+  <aside class="notes">Coverage proves real work flows through the tool, because it's measured on actual client proposals. Creative Confidence proves people feel empowered, not replaced, in their own words. The acceptance band matters: below 40% the tool isn't useful, and above 80% people may be rubber-stamping. And there's a kill rule, so we don't push a tool people don't want.</aside>
+</section>
+
+<!-- ============================== 19 CLOSE ============================== -->
+<section class="slide roomy" data-section="Close">
+  <div class="kicker r">Close</div>
+  <h2 class="t r" style="--d:1">What I need, and my first 30 days</h2>
+  <div class="body">
+    <div class="g2">
+      <div class="card r" style="--d:2"><div class="lab">What I need</div>
+        <div class="ask">
+          <div><span><b>Analyst time:</b> both DAs at least 70% on the transformation.</span></div>
+          <div><span><b>Platform access:</b> a sponsor for Meta App Review, Business Verification and TikTok app review, filed in week 1.</span></div>
+          <div><span><b>A pilot squad,</b> plus the most respected skeptical CD on the design council.</span></div>
+          <div><span><b>Legal and DPO</b> for the AI Likeness Rider, vendor DPAs and the DPIA.</span></div>
+          <div><span><b>At most USD 1,000 a month</b> for tools, and no new headcount in Phase 1.</span></div>
+        </div>
+      </div>
+      <div class="card r" style="--d:3"><div class="lab">My first 30 days</div>
+        <div class="wk">
+          <span class="d">WEEK 1</span><span>Shadow users, start the time study and the data audit, file the platform app reviews.</span>
+          <span class="d">WEEK 2</span><span>Design council, the "never" list, baselines for every metric.</span>
+          <span class="d">WEEK 3</span><span>Proposal Copilot prototype running in shadow mode with the pilot squad.</span>
+          <span class="d">WEEK 4</span><span>First AI-assisted proposals, the first changelog, and a go / no-go for the pilot.</span>
+        </div>
+      </div>
+    </div>
+    <div class="r" style="--d:4;margin-top:auto;padding-bottom:18px">
+      <div class="closing">Phase 1 earns the right to build the <span>RMN</span>.</div>
+      <div class="lede" style="margin-top:6px">Three tools, one loop, one data asset that compounds with every campaign.</div>
+    </div>
+  </div>
+  <aside class="notes">What I need is mostly people and permissions, not budget. The platform app reviews are the most time-sensitive item, so they're filed in week one. Phase 1 earns the right to build the RMN. Happy to go deeper on any part: the scoring logic, the workflow, or the rollout.</aside>
+</section>
