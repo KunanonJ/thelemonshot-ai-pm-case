@@ -83,6 +83,13 @@ Reused from the case repo (`thelemonshot-ai-pm-case/n8n/build.mjs`): Bayesian sh
 21. **Exports after approval.** Approved content is frozen, so the HTML and PPTX are built once and stored in R2 under `exports/proposal/<run id>/`. To change an approved proposal, start a new one.
 22. **PPTX checked by structure only.** The deck was unpacked and checked (slide order, titles, table pages, font sizes), but not opened in PowerPoint or Keynote here. pptxgenjs's "shrink on overflow" only applies after an edit, so text sizes and table pages are worked out in code instead.
 23. **Local test hooks.** `DEV_AUTH_BYPASS=1` in `.dev.vars` now also renders the UI without Clerk on localhost (`/config` reports it under the same rule as `requireAuth`), and `LLM_CHAT_URL`, accepted only for localhost URLs, points the gateway at a mock model. Neither can apply in production.
+24. **Post-level refresh (③).** Instagram posts go through `apify/instagram-scraper` (`directUrls`, `resultsType: "posts"`, `resultsLimit: 1`), TikTok through `clockworks/tiktok-scraper` (`postURLs`), YouTube through `videos.list`. Inputs checked against the Apify Store input schemas on 2 Nov 2026.
+25. **Unavailable posts (BR-CO-1).** An explicit answer (TikTok's `POST_NOT_FOUND_OR_PRIVATE`, a video missing from `videos.list`) marks a post unavailable at once. Instagram gives no such answer, so a post it doesn't return twice in a row is marked unavailable; after one miss it shows "Not in last refresh".
+26. **Outcome and history scores (FR-CORE-21).** My call: an outcome of 50 means "performed as expected", the geometric mean of engagement against the campaign median and views against baseline where set, capped at 0 to 100 (`outcome-v1`). The history score the Matrix reads is the mean of a creator's outcomes shrunk toward 50 with K = 3, as in the case repo (`history-v1`), and can be rebuilt from outcome records alone (System action).
+27. **Trend (FR-CO-3).** Views only grow, so the trend compares views per day between the last three refreshes: rising, steady or slowing.
+28. **Digest timing.** A digest is written once every platform in a refresh has answered, or after 8 minutes, whichever comes first. A manual refresh is limited to one every 5 minutes because each costs actor runs.
+29. **Closing.** The close needs the exact summary the planner reviewed (by hash) and refuses if a refresh changed the numbers in between. A written-back campaign can be archived, never deleted.
+30. **No digest export.** The ACs don't ask for one; digests live in the app.
 
 ## Phase 1 status (2 Nov 2026, before keys)
 
@@ -105,6 +112,18 @@ Started on Fronk's go-ahead before Phase 1's checks could run (no keys yet). Dep
 | Verified | 47 unit tests (23 new: figure and creator guards, lint, KPI merge, templates, deck layout, and the AC-CP-2 inspection test on the HTML export). A scripted local run against a mock model passed 50 checks covering AC-CP-1, AC-CP-2, AC-CP-3, BR-CP-1, BR-CP-2, FR-CP-2, FR-CP-3, FR-CP-5, FR-CORE-17 and BR-CORE-4. The editor, retry, history and preview were exercised in the browser |
 | Not verified yet | The real model's drafts and timing, the deployed UI behind Clerk, and the PPTX opened in PowerPoint |
 | Not built | Trend attachment (Phase 4) |
+
+## Phase 3 status (2 Nov 2026, before keys)
+
+Deployed as version `7685e9b5`; migration `0002_optimization` applied remotely; committed as `e0c18b3`.
+
+| Area | State |
+|---|---|
+| ③ Optimization | Built and deployed: campaign registration that resolves every post to a creator or a stub (FR-CO-1); scheduled refresh (daily in flight, weekly after) and a manual refresh; the delta engine; digests with a deterministic verdict, winners, losers and freshness footer plus a guarded model narrative; review gate; actions log; closing write-back into history scores; archive; organic-scope label on every surface |
+| Verified | 64 unit tests (17 new). A scripted local run against mock Apify, YouTube and model services passed 34 checks covering AC-CO-1 to AC-CO-4, FR-CO-1, FR-CO-5, FR-CO-7, BR-CO-1 and FR-CORE-21, including a Matrix run reading the written-back score |
+| Not verified yet | Real Apify post payloads and real model digests |
+
+Phases 4 to 6 are being built in parallel on branches `phase4-trends`, `phase5-dco` and `phase6-rmn` (worktrees in `~/Developer/lemon-shot-suite-wt/`), each keeping its tables in `src/worker/products/<product>/schema.ts`; one combined migration is generated when they merge.
 
 UI direction (Mobbin references): Lightfield and Twenty for the shell and tables, Kit's Recommendations for the stat strip, Whop's Launch campaign for the brief form. Neutral greys, one near-black primary, lemon only as the brand mark.
 
