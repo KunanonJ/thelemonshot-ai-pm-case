@@ -15,7 +15,7 @@ export function readSecret(env: Env, name: SecretName): string | undefined {
 
 // Local end-to-end tests only: LLM_CHAT_URL, APIFY_API_URL and YOUTUBE_API_URL in .dev.vars point an
 // external API at a mock on localhost. Any other value is ignored, so production always uses the real host.
-export type LocalOverride = "LLM_CHAT_URL" | "APIFY_API_URL" | "YOUTUBE_API_URL";
+export type LocalOverride = "LLM_CHAT_URL" | "APIFY_API_URL" | "YOUTUBE_API_URL" | "FAL_API_URL";
 
 export function localOverride(env: Env, name: LocalOverride, fallback: string): string {
   const value = (env as unknown as Record<string, unknown>)[name];

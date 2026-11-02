@@ -14,7 +14,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
       { label: "Campaign Proposal", to: "/proposals" },
       { label: "Campaign Optimization", to: "/campaigns" },
       { label: "Trend Monitoring", to: "/trends" },
-      { label: "Creative Variants", soon: "Phase 5" },
+      { label: "Creative Variants", to: "/dco" },
       { label: "Retail Media", to: "/rmn" },
     ],
   },

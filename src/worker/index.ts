@@ -15,6 +15,8 @@ import { rmnPublicRoutes } from "./products/rmn/store";
 import { rmnRoutes } from "./products/rmn/routes";
 import { handleTrendBrief, handleTrendPoll, handleTrendPullTimeout } from "./products/trends/pipeline";
 import { trendRoutes } from "./products/trends/routes";
+import { handleDcoCopy, handleDcoVisual, handleDcoVisualPoll } from "./products/dco/pipeline";
+import { dcoPublicRoutes, dcoRoutes } from "./products/dco/routes";
 import { adminRoutes } from "./routes/admin";
 import { creatorRoutes } from "./routes/creators";
 
@@ -45,8 +47,11 @@ app.get("/config", (c) =>
   c.json({ clerkPublishableKey: readSecret(c.env, "CLERK_PUBLISHABLE_KEY") ?? null, ...(devAuthBypass(c.env, c.req.url) ? { devAuthBypass: true } : {}) }),
 );
 
+// Registered before requireAuth on purpose: fal fetches a DCO base asset through this link with no Clerk session
+app.route("/api/dco/public", dcoPublicRoutes);
 app.use("/api/*", requireAuth);
 app.get("/api/me", (c) => c.json({ userId: c.get("userId"), role: c.get("role") }));
+app.route("/api/dco", dcoRoutes);
 app.route("/api/matrix", matrixRoutes);
 app.route("/api/proposals", proposalRoutes);
 app.route("/api/campaigns", campaignRoutes);
@@ -104,6 +109,15 @@ export default {
             break;
           case "trend-brief":
             await handleTrendBrief(env, body);
+            break;
+          case "dco-copy":
+            await handleDcoCopy(env, body);
+            break;
+          case "dco-visual":
+            await handleDcoVisual(env, body);
+            break;
+          case "dco-visual-poll":
+            await handleDcoVisualPoll(env, body);
             break;
         }
         message.ack();
