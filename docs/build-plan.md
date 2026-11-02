@@ -123,7 +123,30 @@ Deployed as version `7685e9b5`; migration `0002_optimization` applied remotely; 
 | Verified | 64 unit tests (17 new). A scripted local run against mock Apify, YouTube and model services passed 34 checks covering AC-CO-1 to AC-CO-4, FR-CO-1, FR-CO-5, FR-CO-7, BR-CO-1 and FR-CORE-21, including a Matrix run reading the written-back score |
 | Not verified yet | Real Apify post payloads and real model digests |
 
-Phases 4 to 6 are being built in parallel on branches `phase4-trends`, `phase5-dco` and `phase6-rmn` (worktrees in `~/Developer/lemon-shot-suite-wt/`), each keeping its tables in `src/worker/products/<product>/schema.ts`; one combined migration is generated when they merge.
+## Phases 4 to 6 status (2 Nov 2026, before keys)
+
+Built in parallel by three agents on branches `phase4-trends`, `phase5-dco` and `phase6-rmn` (worktrees in `~/Developer/lemon-shot-suite-wt/`), each with its tables in `src/worker/products/<product>/schema.ts`. Merged into main with one migration per phase (`0003_rmn`, `0004_trends`, `0005_dco`), all applied remotely. Live as version `7b7a1307`.
+
+| Phase | Built | Verified |
+|---|---|---|
+| 4. ② Trends | Watchlists, capped Apify pulls per term and platform, dedupe, hashtag clustering with model theme naming, within-sample briefs with weak-signal labels, review gate, attach an approved brief to a draft proposal (shown in its assumptions) | 31 unit tests; 31 end-to-end checks covering AC-TM-1, AC-TM-2, BR-TM-1 and BR-TM-2, plus a forced model failure |
+| 5. ⑤ DCO | Base-asset intake with rights attestation, copy variants per segment, fal.ai visuals from a code-level allowlist only, provenance on every variant, per-variant review, ZIP export pack | 38 unit tests; 51 end-to-end checks covering AC-DC-1, AC-DC-2, BR-DC-1, BR-DC-2 and FR-DC-1 |
+| 6. ⑥ RMN | Campaigns with per-creator tracked links, public redirect with KV mapping and bot filter, a labelled public demo store, last-click and time-decay attribution, simulated orders kept apart from history scores | 22 unit tests; 25 end-to-end checks covering AC-RM-1 to AC-RM-3, FR-RM-1 and FR-RM-2 |
+
+Regression on the merged code: 155 unit tests, and every product's end-to-end script rerun against main (Phase 2 50 of 50, Phase 3 34 of 34, Phase 4 31 of 31, Phase 5 51 of 51, Phase 6 25 of 25). Not verified yet: real Apify, fal.ai and model payloads, the Phase 4 to 6 pages in a browser, and redirect latency in production.
+
+Calls made in Phases 4 to 6, from the builders' reports:
+
+31. **Trend pulls** run on demand only, 30 posts per term by default (100 at most), at most 10 terms per pull. Each term and platform is one Apify run; its cost is Apify's `usageTotalUsd`, or "Not reported".
+32. **Themes** are seeded by a hashtag shared by at least two posts (at most eight themes). Fewer than three posts is a weak signal. "Rising within this pull" means at least 60% of dated posts fall in the newer half of the pulled window. Platform-wide wording from the model is dropped and flagged.
+33. **Trend attachment** needs an approved brief and a draft proposal. Detaching isn't built.
+34. **DCO allowlist:** `fal-ai/bria/expand`, `fal-ai/bria/background/replace` and `fal-ai/bria/product-shot`, each checked on its fal model page on 2 Nov 2026. A unit test fails if an allowlisted model looks like a face, person, portrait, swap, avatar or headshot model.
+35. **DCO base asset** reaches fal through `/api/dco/public/input/:token`: a 256-bit token kept in KV for two hours, mapped to one stored image. fal has no session and documents no REST upload.
+36. **DCO jobs** have five visual slots (1:1, 4:5 and 9:16 layouts plus two scenes) and N copy options per segment (default 3, English only). Assets up to 8 MB. `FAL_API_KEY` isn't set yet, so visuals show a retry state until it is.
+37. **DCO safety flags:** the three Bria pages document no safety field, so BR-DC-2 checks fal's common flag names; only the mock has exercised it.
+38. **RMN links:** 12-symbol slugs from a 32-symbol alphabet (60 bits). A turned-off link returns 410 with a neutral page; the attempt is logged, not counted. Raw user agents aren't stored, only their class; referrers as host only.
+39. **RMN attribution:** time decay weighs each in-window click by 0.5^(age in days / 2), normalised per order; the window is inclusive. Simulated orders live in their own tables, never in outcome records or history scores. Exporting attributed summaries isn't built.
+40. **Commit trailers:** the three builders ran on a smaller model than the integrator; the Phase 6 commit names Opus 5.5 although its builder wasn't.
 
 UI direction (Mobbin references): Lightfield and Twenty for the shell and tables, Kit's Recommendations for the stat strip, Whop's Launch campaign for the brief form. Neutral greys, one near-black primary, lemon only as the brand mark.
 
