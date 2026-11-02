@@ -1,9 +1,40 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { classifyUserAgent } from "../src/worker/products/rmn/bots";
 import { addClickId, parseCart, parseClickIds, serialiseIds } from "../src/worker/products/rmn/cookies";
 import { attributeOrder, DAY_MS, groupTouches, HALF_LIFE_DAYS, summariseAttribution, touchInWindow, validateWindowDays, type OrderTouches } from "../src/worker/products/rmn/attribution";
 import { isKnownLanding, landingPath } from "../src/worker/products/rmn/catalog";
 import { generateSlug, SLUG_ALPHABET, SLUG_LENGTH } from "../src/worker/products/rmn/slugs";
+import {
+  completenessNote,
+  countDroppedWrite,
+  decodeMapping,
+  encodeMapping,
+  LINK_CACHE_TTL_S,
+  LINK_CACHE_WRITE,
+  parseCount,
+  propagationNote,
+  readDroppedCount,
+  readLinkCache,
+  writeLinkCache,
+} from "../src/worker/products/rmn/cache";
+import { resolveLink, type LinkMapping } from "../src/worker/products/rmn/links";
+
+// The D1 query behind resolveLink, replaced so the KV-to-D1 fallback can be tested without a database
+const d1 = vi.hoisted(() => ({ rows: [] as unknown[], fail: false }));
+vi.mock("../src/worker/core/db/client", () => ({
+  getDb: () => ({
+    select: () => ({
+      from: () => ({
+        innerJoin: () => ({
+          where: async () => {
+            if (d1.fail) throw new Error("D1 unavailable");
+            return d1.rows;
+          },
+        }),
+      }),
+    }),
+  }),
+}));
 
 const T0 = Date.UTC(2026, 10, 1, 12);
 const CLICK_A = "00000000-0000-4000-8000-00000000000a";
@@ -233,5 +264,142 @@ describe("catalogue landing targets (FR-RM-5)", () => {
     expect(isKnownLanding("category", "p-seaweed-chips")).toBe(false);
     expect(landingPath("product", "p-seaweed-chips")).toBe("/store/p/p-seaweed-chips");
     expect(landingPath("category", "beauty")).toBe("/store/c/beauty");
+  });
+});
+
+const MAPPING: LinkMapping = { linkId: "link-1", campaignId: "camp-1", creatorId: "fixture-1", variant: null, disabled: false, landingPath: "/store/p/p-seaweed-chips" };
+const ROW = { link: { id: "link-1", campaignId: "camp-1", creatorId: "fixture-1", variant: null, disabled: false }, landingKind: "product", landingId: "p-seaweed-chips" };
+
+// A KV stand-in. Failing calls throw, as a KV outage does; successful writes are recorded for assertions
+function fakeKv(opts: { failGet?: boolean; failPut?: boolean; stored?: Record<string, string> } = {}) {
+  const store = new Map(Object.entries(opts.stored ?? {}));
+  const puts: { key: string; value: string; options?: unknown }[] = [];
+  const kv = {
+    async get(key: string) {
+      if (opts.failGet) throw new Error("KV read failed");
+      return store.get(key) ?? null;
+    },
+    async put(key: string, value: string, options?: unknown) {
+      if (opts.failPut) throw new Error("KV write failed");
+      puts.push({ key, value, options });
+      store.set(key, value);
+    },
+  };
+  return { kv: kv as unknown as Pick<KVNamespace, "get" | "put">, puts };
+}
+
+describe("link cache TTL and entry shape (FR-RM-1, BR-RM-3)", () => {
+  it("expires cache entries after ten minutes, above the 60 second minimum KV accepts", () => {
+    expect(LINK_CACHE_TTL_S).toBe(600);
+    expect(LINK_CACHE_TTL_S).toBeGreaterThanOrEqual(60);
+    expect(LINK_CACHE_WRITE).toEqual({ expirationTtl: 600 });
+  });
+
+  it("round-trips a mapping and treats any malformed entry as a miss", () => {
+    expect(decodeMapping(encodeMapping(MAPPING))).toEqual(MAPPING);
+    expect(decodeMapping(null)).toBeNull();
+    expect(decodeMapping("{not json")).toBeNull();
+    expect(decodeMapping(JSON.stringify({ ...MAPPING, disabled: "false" }))).toBeNull();
+    expect(decodeMapping(JSON.stringify({ ...MAPPING, disabled: undefined }))).toBeNull();
+    expect(decodeMapping(JSON.stringify({ ...MAPPING, variant: 3 }))).toBeNull();
+    expect(decodeMapping(JSON.stringify({ ...MAPPING, landingPath: "https://example.com/" }))).toBeNull();
+  });
+});
+
+describe("KV failures never reach the shopper (BR-RM-3, BR-CORE-3)", () => {
+  beforeEach(() => {
+    d1.rows = [];
+    d1.fail = false;
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("reads a cached mapping, and treats a KV read error or a corrupt entry as a miss", async () => {
+    expect(await readLinkCache(fakeKv({ stored: { "rmn:link:abc": encodeMapping(MAPPING) } }).kv, "abc")).toEqual(MAPPING);
+    expect(await readLinkCache(fakeKv({ failGet: true }).kv, "abc")).toBeNull();
+    expect(await readLinkCache(fakeKv({ stored: { "rmn:link:abc": "{oops" } }).kv, "abc")).toBeNull();
+  });
+
+  it("writes with the ten minute TTL, and reports a failed write without throwing", async () => {
+    const ok = fakeKv();
+    expect(await writeLinkCache(ok.kv, "abc", MAPPING)).toBe(true);
+    expect(ok.puts).toEqual([{ key: "rmn:link:abc", value: JSON.stringify(MAPPING), options: { expirationTtl: 600 } }]);
+    expect(await writeLinkCache(fakeKv({ failPut: true }).kv, "abc", MAPPING)).toBe(false);
+  });
+
+  it("falls through to D1 when the KV read fails, and warms the cache with the TTL", async () => {
+    d1.rows = [ROW];
+    const f = fakeKv({ failGet: true });
+    expect(await resolveLink({ CONFIG: f.kv, DB: {} } as unknown as Env, "abc")).toEqual(MAPPING);
+    expect(f.puts).toEqual([{ key: "rmn:link:abc", value: JSON.stringify(MAPPING), options: { expirationTtl: 600 } }]);
+  });
+
+  it("still answers with the mapping when the cache warm-up also fails", async () => {
+    d1.rows = [ROW];
+    const env = { CONFIG: fakeKv({ failGet: true, failPut: true }).kv, DB: {} } as unknown as Env;
+    expect(await resolveLink(env, "abc")).toEqual(MAPPING);
+  });
+
+  it("answers from the cache without a D1 read", async () => {
+    d1.fail = true;
+    const env = { CONFIG: fakeKv({ stored: { "rmn:link:abc": encodeMapping(MAPPING) } }).kv, DB: {} } as unknown as Env;
+    expect(await resolveLink(env, "abc")).toEqual(MAPPING);
+  });
+
+  it("lets a D1 error reach the caller, and returns null for an unknown slug", async () => {
+    d1.fail = true;
+    await expect(resolveLink({ CONFIG: fakeKv().kv, DB: {} } as unknown as Env, "abc")).rejects.toThrow("D1 unavailable");
+    d1.fail = false;
+    expect(await resolveLink({ CONFIG: fakeKv().kv, DB: {} } as unknown as Env, "zzz")).toBeNull();
+  });
+});
+
+describe("dropped write counts and completeness note (BR-CORE-2)", () => {
+  beforeEach(() => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("counts each dropped write against its own campaign", async () => {
+    const f = fakeKv();
+    expect(await readDroppedCount(f.kv, "camp-1")).toBe(0);
+    expect(await countDroppedWrite(f.kv, "camp-1")).toBe(true);
+    expect(await countDroppedWrite(f.kv, "camp-1")).toBe(true);
+    expect(await countDroppedWrite(f.kv, "camp-2")).toBe(true);
+    expect(await readDroppedCount(f.kv, "camp-1")).toBe(2);
+    expect(await readDroppedCount(f.kv, "camp-2")).toBe(1);
+  });
+
+  it("reports an unreadable counter as unknown rather than zero", async () => {
+    expect(await readDroppedCount(fakeKv({ failGet: true }).kv, "camp-1")).toBeNull();
+    expect(await countDroppedWrite(fakeKv({ failPut: true }).kv, "camp-1")).toBe(false);
+  });
+
+  it("accepts only plain whole numbers from the counter", () => {
+    expect(parseCount("0")).toBe(0);
+    expect(parseCount("4")).toBe(4);
+    for (const bad of ["", "-1", "1e3", "2.5", "many"]) expect(parseCount(bad)).toBeNull();
+  });
+
+  it("writes a plain sentence for none, one, several, and an unreadable counter", () => {
+    expect(completenessNote(0)).toBeNull();
+    expect(completenessNote(1)).toBe("1 click or store event was not saved, so these counts may be lower than the real numbers.");
+    expect(completenessNote(3)).toBe("3 clicks or store events were not saved, so these counts may be lower than the real numbers.");
+    expect(completenessNote(null)).toContain("could not check");
+  });
+});
+
+describe("cache propagation note and wording (BR-RM-3, BR-CORE-3)", () => {
+  it("says how long a failed cache update can take, in plain words", () => {
+    expect(propagationNote(LINK_CACHE_TTL_S)).toBe(
+      "The change is saved, but the cached copy could not be updated, so it may take up to 10 minutes to reach every location.",
+    );
+    expect(propagationNote(60)).toContain("up to 1 minute to reach");
+  });
+
+  it("uses no em dashes in any note", () => {
+    for (const note of [completenessNote(1), completenessNote(2), completenessNote(null), propagationNote(600)]) {
+      expect(note).not.toMatch(/[‒-―]/);
+    }
   });
 });

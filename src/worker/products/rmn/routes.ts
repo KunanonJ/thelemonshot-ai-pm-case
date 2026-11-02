@@ -8,7 +8,8 @@ import { creators } from "../../core/db/schema";
 import { newId } from "../../core/util";
 import { groupTouches, HALF_LIFE_DAYS, summariseAttribution, WINDOW_DAYS, type TouchRow } from "./attribution";
 import { CATEGORIES, DEMO_PRODUCTS, isKnownLanding, landingLabel, RMN_SCOPE, STORE_BANNER } from "./catalog";
-import { cacheLink, toMapping } from "./links";
+import { completenessNote, LINK_CACHE_TTL_S, propagationNote, readDroppedCount, writeLinkCache } from "./cache";
+import { toMapping } from "./links";
 import { generateSlug } from "./slugs";
 import { rmnCampaigns, rmnClicks, rmnLinks, rmnOrderTouchpoints, rmnSimulatedOrders, rmnStoreEvents } from "./schema";
 
@@ -58,13 +59,23 @@ rmnRoutes.get("/campaigns", async (c) => {
   });
 });
 
+// Messages are plain sentences: a planner may see them on the form (BR-CORE-3)
+const WINDOW_MESSAGE = `The attribution window is ${WINDOW_DAYS.min} to ${WINDOW_DAYS.max} days`;
 const createSchema = z.object({
-  name: z.string().trim().min(1, "Give the campaign a name").max(120),
-  windowDays: z.number().int().min(WINDOW_DAYS.min).max(WINDOW_DAYS.max).default(WINDOW_DAYS.default),
+  name: z.string().trim().min(1, "Give the campaign a name").max(120, "Keep the campaign name to 120 characters or fewer"),
+  windowDays: z
+    .number()
+    .int("Use a whole number of days")
+    .min(WINDOW_DAYS.min, WINDOW_MESSAGE)
+    .max(WINDOW_DAYS.max, WINDOW_MESSAGE)
+    .default(WINDOW_DAYS.default),
   landingKind: z.enum(["product", "category"]),
-  landingId: z.string().min(1),
-  creatorIds: z.array(z.string().min(1)).min(1).max(30),
-  variants: z.array(z.string().trim().min(1).max(40)).max(5).default([]),
+  landingId: z.string().min(1, "Pick a landing page from the list"),
+  creatorIds: z.array(z.string().min(1)).min(1, "Pick at least one creator").max(30, "Pick at most 30 creators"),
+  variants: z
+    .array(z.string().trim().min(1, "Variant names can't be empty").max(40, "Keep each variant name to 40 characters or fewer"))
+    .max(5, "Use at most 5 variant names")
+    .default([]),
 });
 
 // FR-RM-1: one default link per creator, plus one per per-post variant. Every slug is unique and unguessable.
@@ -113,7 +124,8 @@ rmnRoutes.post("/campaigns", requireRole("admin", "member"), async (c) => {
   await db.batch([statements[0]!, ...statements.slice(1)]);
 
   const landing = { kind: input.landingKind, id: input.landingId };
-  await Promise.all(links.map((l) => cacheLink(c.env, l.slug, toMapping(l, landing))));
+  // The campaign is already committed, so a failed cache write can't hide its links. An uncached link is read from D1 on its first click.
+  await Promise.all(links.map((l) => writeLinkCache(c.env.CONFIG, l.slug, toMapping(l, landing))));
   const names = new Map(roster.map((r) => [r.id, r.displayName]));
   const origin = new URL(c.req.url).origin;
   return c.json(
@@ -125,7 +137,8 @@ rmnRoutes.post("/campaigns", requireRole("admin", "member"), async (c) => {
   );
 });
 
-// FR-RM-1: a link can be turned off and back on. The change is written to D1 first, then the KV mapping follows.
+// FR-RM-1: a link can be turned off and back on. The change is written to D1 first, then the cached mapping follows. If the cache
+// write fails, the change still stands and the response says how long the old setting may last.
 rmnRoutes.patch("/campaigns/:id/links/:linkId", requireRole("admin", "member"), async (c) => {
   const body = z.object({ disabled: z.boolean() }).safeParse(await c.req.json().catch(() => ({})));
   if (!body.success) return c.json({ error: "invalid_update" }, 400);
@@ -138,8 +151,8 @@ rmnRoutes.patch("/campaigns/:id/links/:linkId", requireRole("admin", "member"), 
   if (!row) return c.json({ error: "not_found" }, 404);
   const disabled = body.data.disabled;
   await db.update(rmnLinks).set({ disabled, statusChangedBy: c.get("userId"), statusChangedAt: Date.now() }).where(eq(rmnLinks.id, row.link.id));
-  await cacheLink(c.env, row.link.slug, toMapping({ ...row.link, disabled }, { kind: row.landingKind, id: row.landingId }));
-  return c.json({ ok: true, disabled });
+  const cached = await writeLinkCache(c.env.CONFIG, row.link.slug, toMapping({ ...row.link, disabled }, { kind: row.landingKind, id: row.landingId }));
+  return c.json({ ok: true, disabled, note: cached ? null : propagationNote(LINK_CACHE_TTL_S) });
 });
 
 rmnRoutes.get("/campaigns/:id", async (c) => {
@@ -161,6 +174,8 @@ async function loadDashboard(env: Env, campaignId: string, origin: string) {
   const db = getDb(env);
   const [campaign] = await db.select().from(rmnCampaigns).where(eq(rmnCampaigns.id, campaignId));
   if (!campaign) return null;
+  // Dropped writes are counted in KV. If that counter can't be read, the note says the counts can't be checked.
+  const droppedWrites = await readDroppedCount(env.CONFIG, campaignId);
 
   const links = await db
     .select({
@@ -271,6 +286,7 @@ async function loadDashboard(env: Env, campaignId: string, origin: string) {
     scope: RMN_SCOPE,
     banner: STORE_BANNER,
     sampleData: links.some((l) => l.isSample),
+    completeness: { droppedWrites, note: completenessNote(droppedWrites) },
     halfLifeDays: HALF_LIFE_DAYS,
     headline: {
       humanClicks: humanClicks.length,

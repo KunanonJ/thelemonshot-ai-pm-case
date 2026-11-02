@@ -33,14 +33,20 @@ export function RmnCampaignDetail({ role, id }: { role: Role; id: string }) {
   const [model, setModel] = useState<RmnModel>("last_click");
   const [acting, setActing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const d = data.data;
   const canEdit = role !== "viewer";
 
   async function setLinkDisabled(linkId: string, disabled: boolean) {
     setActing(true);
     setError(null);
+    setNotice(null);
     try {
-      await api(`/api/rmn/campaigns/${id}/links/${linkId}`, { method: "PATCH", body: { disabled } });
+      const saved = await api<{ ok: boolean; disabled: boolean; note: string | null }>(`/api/rmn/campaigns/${id}/links/${linkId}`, {
+        method: "PATCH",
+        body: { disabled },
+      });
+      setNotice(saved.note);
       await data.reload();
     } catch (e) {
       setError(e instanceof ApiError ? (ERRORS[e.code] ?? "That didn't go through. Refresh and try again.") : "That didn't go through.");
@@ -52,7 +58,9 @@ export function RmnCampaignDetail({ role, id }: { role: Role; id: string }) {
   if (!d) {
     return (
       <Shell role={role} title={<Crumbs items={[{ label: "Retail Media", to: "/rmn" }, { label: "Campaign" }]} />}>
-        <div className="flex items-center gap-2 text-sm text-neutral-500">{data.error ? `Couldn't load this campaign (${data.error}).` : <Spinner />}</div>
+        <div className="flex items-center gap-2 text-sm text-neutral-500">
+          {data.error ? "Couldn't load this campaign. Refresh the page to try again." : <Spinner />}
+        </div>
       </Shell>
     );
   }
@@ -82,6 +90,8 @@ export function RmnCampaignDetail({ role, id }: { role: Role; id: string }) {
         <Banner tone="neutral" title="Simulated commerce: RMN Demo Store">
           {d.scope} The store runs a simulated checkout with no real payment, and it collects no personal details.
         </Banner>
+
+        {d.completeness.note && <Banner tone="amber" title="Some records are missing">{d.completeness.note}</Banner>}
 
         {h.unattributedOrders > 0 && (
           <Banner tone="amber" title={`${h.unattributedOrders} unattributed ${h.unattributedOrders === 1 ? "order" : "orders"}`}>
@@ -197,6 +207,7 @@ export function RmnCampaignDetail({ role, id }: { role: Role; id: string }) {
             A turned-off link sends the visitor to a neutral page, and the attempt is logged. The redirect reads a cached copy in Cloudflare KV, which is eventually
             consistent, so a change can take up to about a minute to reach every location.
           </p>
+          {notice && <Banner tone="amber" title="Change saved">{notice}</Banner>}
           {error && <Banner tone="red" title={error} />}
           <div className="overflow-hidden rounded-lg border border-neutral-200">
             <table className="w-full">

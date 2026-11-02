@@ -344,6 +344,7 @@ export type RmnDashboard = {
   scope: string;
   banner: string;
   sampleData: boolean;
+  completeness: { droppedWrites: number | null; note: string | null };
   halfLifeDays: number;
   headline: {
     humanClicks: number;
