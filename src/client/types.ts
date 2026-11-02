@@ -313,3 +313,51 @@ export type CampaignDigest = {
   createdAt: number;
   actions: CampaignAction[];
 };
+
+// ---------- ⑥ Retail Media Network (Phase 6) ----------
+
+export type RmnModel = "last_click" | "time_decay";
+export type RmnTotals = { conversions: number; revenue: number };
+
+export type RmnCampaignSummary = {
+  id: string;
+  name: string;
+  windowDays: number;
+  landingLabel: string;
+  createdAt: number;
+  links: number;
+  humanClicks: number;
+  botClicks: number;
+  trackedOrders: number;
+};
+
+export type RmnCatalog = {
+  scope: string;
+  banner: string;
+  categories: { id: string; label: string }[];
+  products: { id: string; name: string; category: string; priceThb: number; blurb: string }[];
+};
+
+export type RmnDashboard = {
+  campaign: { id: string; name: string; windowDays: number; landingKind: "product" | "category"; landingLabel: string; createdAt: number };
+  scope: string;
+  banner: string;
+  sampleData: boolean;
+  halfLifeDays: number;
+  headline: {
+    humanClicks: number;
+    botClicks: number;
+    disabledAttempts: number;
+    attributedOrders: number;
+    conversionRate: number | null;
+    unattributedOrders: number;
+    unattributedRevenue: number;
+    funnel: { productViews: number; cartAdds: number; checkouts: number };
+  };
+  models: Record<RmnModel, RmnTotals>;
+  creators: { creatorId: string; name: string; isSample: boolean; links: number; humanClicks: number; botClicks: number; lastClick: RmnTotals; timeDecay: RmnTotals }[];
+  links: { linkId: string; creatorId: string; creatorName: string; variant: string | null; url: string; disabled: boolean; statusChangedAt: number | null; humanClicks: number; botClicks: number }[];
+  rawLog: { clickedAt: number; creatorName: string; variant: string | null; uaClass: "human" | "bot"; botReason: string | null; result: "redirected" | "disabled"; referrerHost: string | null }[];
+};
+
+export type RmnCreated = { id: string; links: { linkId: string; creatorId: string; creatorName: string; variant: string | null; url: string }[] };
