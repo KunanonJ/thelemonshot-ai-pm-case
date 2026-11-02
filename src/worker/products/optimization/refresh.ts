@@ -108,7 +108,7 @@ export async function handleCampaignPostsPoll(env: Env, msg: ApifyPollMessage): 
   if (state.status === "SUCCEEDED" && state.datasetId) {
     const items = await getDatasetItems(env, state.datasetId, 500);
     await env.FILES.put(`raw/apify/${msg.apifyRunId}.json`, JSON.stringify(items), { httpMetadata: { contentType: "application/json" } });
-    await finishApifyRun(env, msg.localRunId, "SUCCEEDED", items.length);
+    await finishApifyRun(env, msg.localRunId, "SUCCEEDED", items.length, undefined, state.usageUsd);
     // Late results after a timeout still count: they are real data for the next digest
     const posts = await trackedPosts(db, refresh.campaignId, msg.platform);
     const results =
@@ -122,7 +122,7 @@ export async function handleCampaignPostsPoll(env: Env, msg: ApifyPollMessage): 
   if ((state.status === "READY" || state.status === "RUNNING") && withinWindow) {
     return void (await env.ENRICH_QUEUE.send(msg, { delaySeconds: 15 }));
   }
-  await finishApifyRun(env, msg.localRunId, state.status === "RUNNING" ? "POLL_TIMEOUT" : state.status, null, `Apify run ended as ${state.status}`);
+  await finishApifyRun(env, msg.localRunId, state.status === "RUNNING" ? "POLL_TIMEOUT" : state.status, null, `Apify run ended as ${state.status}`, state.usageUsd);
   await markFailed(env, refreshId, msg.platform, `Apify run ended as ${state.status}`);
   return tryFinalize(env, refreshId);
 }

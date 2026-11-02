@@ -167,7 +167,7 @@ export async function handleTrendPoll(env: Env, msg: TrendPollMessage): Promise<
         finishedAt: Date.now(),
       })
       .where(and(eq(trendPullTerms.id, term.id), eq(trendPullTerms.status, "running")));
-    await finishApifyRun(env, msg.localRunId, "SUCCEEDED", items.length);
+    await finishApifyRun(env, msg.localRunId, "SUCCEEDED", items.length, undefined, state.usageUsd);
     return settlePull(env, term.pullId);
   }
   if (state.status === "SUCCEEDED") return failTerm(env, term, "Apify run finished without a dataset", "NO_DATASET");

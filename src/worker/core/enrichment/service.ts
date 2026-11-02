@@ -131,7 +131,7 @@ export async function handleApifyPoll(env: Env, msg: ApifyPollMessage): Promise<
     const items = await getDatasetItems(env, state.datasetId, msg.purpose === "profile" ? 1_000 : 2_000);
     const rawKey = `raw/apify/${msg.apifyRunId}.json`;
     await env.FILES.put(rawKey, JSON.stringify(items), { httpMetadata: { contentType: "application/json" } });
-    await finishApifyRun(env, msg.localRunId, "SUCCEEDED", items.length);
+    await finishApifyRun(env, msg.localRunId, "SUCCEEDED", items.length, undefined, state.usageUsd);
     if (msg.purpose === "discovery") return processDiscoveryResults(env, msg, items);
     return applyProfileResults(env, db, msg, items, rawKey);
   }

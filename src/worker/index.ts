@@ -18,6 +18,7 @@ import { trendRoutes } from "./products/trends/routes";
 import { handleDcoCopy, handleDcoVisual, handleDcoVisualPoll } from "./products/dco/pipeline";
 import { dcoPublicRoutes, dcoRoutes } from "./products/dco/routes";
 import { adminRoutes } from "./routes/admin";
+import { sweepStuckWork } from "./sweeper";
 import { creatorRoutes } from "./routes/creators";
 
 const app = new Hono<AppEnv>();
@@ -133,5 +134,6 @@ export default {
     await runPhase0Auto(env);
     await sweepStale(env);
     await runDueRefreshes(env);
+    await sweepStuckWork(env);
   },
 } satisfies ExportedHandler<Env, QueueMessage>;

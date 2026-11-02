@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, lt } from "drizzle-orm";
 import { getDb, type Db } from "../../core/db/client";
 import { briefs, creators, PROPOSAL_ORIGINS, proposalSections, proposalVersions, runLogs, runs, type ProposalCitation } from "../../core/db/schema";
 import { errorMessage } from "../../core/env";
@@ -45,6 +45,7 @@ const FAILURE_TEXT: Record<string, string> = {
   shortlist_pending: "The attached shortlist is still scoring",
   shortlist_unavailable: "The attached shortlist has no picks to cite",
   unexpected: "Something went wrong while drafting this section",
+  stalled: "Drafting stopped before this section finished",
 };
 
 export class ProposalInputError extends Error {}
@@ -383,4 +384,37 @@ async function advance(env: Env, db: Db, run: RunRow, fromKey: SectionKey): Prom
     .update(runs)
     .set({ status: "draft", finishedAt: Date.now(), flags: { ...flags, sampleData: Boolean(sl?.picks.some((p) => p.isSample)) } })
     .where(eq(runs.id, run.id));
+}
+
+// §7.7 and NFR-2: a lost or dead-lettered queue message must not leave a proposal drafting forever. The cron
+// sweep settles any section stuck in pending or generating for longer than this, the same way a model failure
+// does (template draft with a retry, or the current version kept), then lets the run reach draft.
+const STALLED_AFTER_MS = 20 * 60_000;
+
+export async function sweepStuckProposals(env: Env, now = Date.now()): Promise<number> {
+  const db = getDb(env);
+  const stuck = await db
+    .select({ section: proposalSections, run: runs })
+    .from(proposalSections)
+    .innerJoin(runs, eq(proposalSections.runId, runs.id))
+    .where(and(inArray(proposalSections.status, ["pending", "generating"]), lt(proposalSections.updatedAt, now - STALLED_AFTER_MS)));
+  const touched = new Set<string>();
+  for (const { section, run } of stuck) {
+    if (!["queued", "running", "draft"].includes(run.status)) continue;
+    await recordFailure(db, run, section, sectionMessage(run.id, section.sectionKey as SectionKey, "initial", "system:sweep"), "stalled");
+    touched.add(run.id);
+  }
+  // A run whose chain stopped: once nothing is pending or generating it becomes a draft for review
+  for (const runId of touched) {
+    const [run] = await db.select().from(runs).where(eq(runs.id, runId));
+    if (!run || (run.status !== "queued" && run.status !== "running")) continue;
+    const open = await db
+      .select({ id: proposalSections.id })
+      .from(proposalSections)
+      .where(and(eq(proposalSections.runId, runId), inArray(proposalSections.status, ["pending", "generating"])))
+      .limit(1);
+    if (open.length) continue;
+    await db.update(runs).set({ status: "draft", finishedAt: now, flags: { ...proposalFlags(run), stalled: true } }).where(eq(runs.id, runId));
+  }
+  return stuck.length;
 }

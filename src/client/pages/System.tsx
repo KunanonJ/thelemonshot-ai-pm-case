@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Crumbs, Shell } from "../components/Shell";
-import { Button, Card, StatCard, StatusPill, Td, Th } from "../components/ui";
+import { Banner, Button, Card, Input, StatCard, StatusPill, Td, Th } from "../components/ui";
 import { useApi, useResource } from "../lib/api";
 import { fmtAgo } from "../lib/format";
 import type { Role } from "../types";
@@ -14,6 +14,18 @@ type Overview = {
   apify: { purpose: string; runs: number; items: number }[];
   runs: { product: string; status: string; runs: number }[];
   openDeadLetters: number;
+};
+
+type WeeklyCost = {
+  llmUsd: number;
+  apifyUsd: number;
+  totalUsd: number;
+  totalThb: number;
+  byProduct: { product: string; usd: number }[];
+  apifyRunsWithoutCost: number;
+  imageGenerations: number;
+  settings: { weeklyThresholdThb: number; usdToThb: number; rateSetByOperator: boolean };
+  over: boolean;
 };
 
 type Phase0Row = { check_id: string; status: string; detail: Record<string, unknown>; attempts: number; updated_at: string };
@@ -33,7 +45,11 @@ export function System({ role }: { role: Role }) {
   const overview = useResource<Overview>("/api/admin/overview");
   const flags = useResource<{ llmForceFail: boolean; llmModel: string }>("/api/admin/flags");
   const phase0 = useResource<Phase0Row[]>("/api/admin/phase0/results");
+  const cost = useResource<WeeklyCost>("/api/admin/cost");
   const [busy, setBusy] = useState<string | null>(null);
+  const [opsNote, setOpsNote] = useState<string | null>(null);
+  const [threshold, setThreshold] = useState("");
+  const [rate, setRate] = useState("");
   const o = overview.data;
 
   async function toggleForceFail() {
@@ -50,6 +66,32 @@ export function System({ role }: { role: Role }) {
     }
   }
 
+  async function operate(id: string, path: string, describe: (r: Record<string, number>) => string) {
+    setBusy(id);
+    setOpsNote(null);
+    try {
+      setOpsNote(describe(await api<Record<string, number>>(path, { method: "POST", body: {} })));
+    } catch {
+      setOpsNote("That didn't go through. Try again.");
+    } finally {
+      setBusy(null);
+      await Promise.all([overview.reload(), cost.reload()]);
+    }
+  }
+  async function saveCost() {
+    const body = { weeklyThresholdThb: Number(threshold || cost.data?.settings.weeklyThresholdThb), usdToThb: Number(rate || cost.data?.settings.usdToThb) };
+    setBusy("cost");
+    try {
+      await api("/api/admin/cost/settings", { method: "POST", body });
+      setThreshold("");
+      setRate("");
+    } finally {
+      setBusy(null);
+      await cost.reload();
+    }
+  }
+
+  const w = cost.data;
   const llmCalls = o?.llm.reduce((a, r) => a + r.calls, 0) ?? 0;
   const llmCost = o?.llm.reduce((a, r) => a + r.cost_usd, 0) ?? 0;
   const results = new Map((phase0.data ?? []).map((r) => [r.check_id, r]));
@@ -103,6 +145,78 @@ export function System({ role }: { role: Role }) {
             </div>
           </section>
         )}
+
+        {w && (
+          <Card className="p-4 text-[13px]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <div className="font-semibold">External cost, last 7 days</div>
+                <div className="mt-1 text-2xl font-semibold tabular-nums">
+                  ฿{w.totalThb.toLocaleString("en")} <span className="text-sm font-normal text-neutral-500">of ฿{w.settings.weeklyThresholdThb.toLocaleString("en")} threshold</span>
+                </div>
+                <div className="text-xs text-neutral-500">
+                  ${w.totalUsd.toFixed(2)} (model ${w.llmUsd.toFixed(2)}, Apify ${w.apifyUsd.toFixed(2)}) at {w.settings.usdToThb} THB per USD
+                  {!w.settings.rateSetByOperator && ", a placeholder rate until you set your own"}
+                </div>
+              </div>
+              <div className="flex items-end gap-2">
+                <label className="text-xs text-neutral-500">
+                  Threshold ฿
+                  <Input className="mt-1 w-24" type="number" min={0} value={threshold} placeholder={String(w.settings.weeklyThresholdThb)} onChange={(e) => setThreshold(e.target.value)} />
+                </label>
+                <label className="text-xs text-neutral-500">
+                  THB per USD
+                  <Input className="mt-1 w-20" type="number" min={0} step="0.01" value={rate} placeholder={String(w.settings.usdToThb)} onChange={(e) => setRate(e.target.value)} />
+                </label>
+                <Button size="sm" disabled={busy !== null || (!threshold && !rate)} onClick={() => void saveCost()}>
+                  Save
+                </Button>
+              </div>
+            </div>
+            {w.over && (
+              <div className="mt-3">
+                <Banner title="Over the weekly threshold">Nothing has been stopped. Check what ran this week below and on the product pages.</Banner>
+              </div>
+            )}
+            <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-neutral-600 tabular-nums">
+              {w.byProduct.map((p) => (
+                <span key={p.product}>
+                  {p.product}: ${p.usd.toFixed(2)}
+                </span>
+              ))}
+              {w.apifyRunsWithoutCost > 0 && <span className="text-amber-700">{w.apifyRunsWithoutCost} Apify runs reported no cost</span>}
+              {w.imageGenerations > 0 && <span>{w.imageGenerations} image generations (fal.ai reports no cost)</span>}
+            </div>
+          </Card>
+        )}
+
+        <Card className="p-4 text-[13px]">
+          <div className="font-semibold">Before a demo</div>
+          <div className="text-neutral-500">
+            Pre-warm refreshes every active creator whose data is over 12 hours old and every active campaign, so no demo step waits on a live pull (NFR-7).
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="primary"
+              disabled={busy !== null}
+              onClick={() => void operate("prewarm", "/api/admin/prewarm", (r) => `Queued ${r.jobs} enrichment jobs for ${r.creators} creators and refreshed ${r.campaigns} campaigns.`)}
+            >
+              {busy === "prewarm" ? "Pre-warming" : "Pre-warm demo data"}
+            </Button>
+            <Button size="sm" disabled={busy !== null} onClick={() => void operate("due", "/api/admin/campaigns/run-due", (r) => `Started ${r.started} scheduled campaign refreshes.`)}>
+              Run due campaign refreshes
+            </Button>
+            <Button
+              size="sm"
+              disabled={busy !== null}
+              onClick={() => void operate("history", "/api/admin/history/recompute", (r) => `Rebuilt history scores for ${r.creators} creators from their outcome records; ${r.changed} changed.`)}
+            >
+              Rebuild history scores
+            </Button>
+          </div>
+          {opsNote && <div className="mt-2 text-xs text-neutral-600">{opsNote}</div>}
+        </Card>
 
         <Card className="flex items-center justify-between p-4 text-[13px]">
           <div>

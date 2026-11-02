@@ -43,6 +43,13 @@
       "when": 1793628415129,
       "tag": "0005_dco",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1793629305341,
+      "tag": "0006_cost",
+      "breakpoints": true
     }
   ]
 }

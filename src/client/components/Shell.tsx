@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useResource } from "../lib/api";
 import { UserMenu } from "../lib/auth";
 import { Link, useRouter } from "../lib/router";
 import { cx } from "./ui";
@@ -24,6 +25,8 @@ const NAV: { section: string; items: NavItem[] }[] = [
 
 export function Shell({ role, title, actions, children }: { role: string; title: ReactNode; actions?: ReactNode; children: ReactNode }) {
   const { path } = useRouter();
+  // NFR-5: admins see the weekly cost alert on every page; it never blocks anything
+  const cost = useResource<{ over: boolean; totalThb: number; thresholdThb: number }>(role === "admin" ? "/api/admin/cost-alert" : null);
   return (
     <div className="min-h-screen bg-white text-neutral-900">
       <aside className="fixed inset-y-0 left-0 flex w-56 flex-col border-r border-neutral-200 bg-neutral-50/70">
@@ -72,6 +75,14 @@ export function Shell({ role, title, actions, children }: { role: string; title:
           <div className="flex min-w-0 items-center gap-2 text-[13px]">{title}</div>
           <div className="flex items-center gap-2">{actions}</div>
         </header>
+        {cost.data?.over && (
+          <div className="border-b border-amber-200 bg-amber-50/70 px-6 py-2 text-[13px] text-amber-900">
+            External costs this week are ฿{cost.data.totalThb.toLocaleString("en")}, over the ฿{cost.data.thresholdThb.toLocaleString("en")} threshold. Nothing has been stopped.{" "}
+            <Link to="/system" className="underline">
+              See System
+            </Link>
+          </div>
+        )}
         <div className="mx-auto max-w-[1240px] px-6 py-6">{children}</div>
       </main>
     </div>

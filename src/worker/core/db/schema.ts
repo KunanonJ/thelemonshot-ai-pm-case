@@ -402,6 +402,8 @@ export const apifyRuns = sqliteTable(
     status: text("status").notNull(),
     itemCount: integer("item_count"),
     error: text("error"),
+    // NFR-5: Apify's own figure for the run (usageTotalUsd); null when it reports none
+    costUsd: real("cost_usd"),
     startedAt: integer("started_at").notNull(),
     finishedAt: integer("finished_at"),
   },

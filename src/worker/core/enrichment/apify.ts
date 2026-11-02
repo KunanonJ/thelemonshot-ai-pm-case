@@ -87,9 +87,9 @@ export async function getDatasetItems(env: Env, datasetId: string, limit: number
   return (await res.json()) as unknown[];
 }
 
-export async function finishApifyRun(env: Env, localRunId: string, status: string, itemCount: number | null, error?: string): Promise<void> {
+export async function finishApifyRun(env: Env, localRunId: string, status: string, itemCount: number | null, error?: string, costUsd: number | null = null): Promise<void> {
   await getDb(env)
     .update(apifyRuns)
-    .set({ status, itemCount, error: error?.slice(0, 300) ?? null, finishedAt: Date.now() })
+    .set({ status, itemCount, error: error?.slice(0, 300) ?? null, costUsd, finishedAt: Date.now() })
     .where(eq(apifyRuns.id, localRunId));
 }

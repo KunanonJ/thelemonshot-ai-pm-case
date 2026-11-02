@@ -3,9 +3,12 @@ import { z } from "zod";
 import { requireRole, type AppEnv } from "../core/auth";
 import { DISCOVERY_DEFAULTS, startDiscovery } from "../core/enrichment/discovery";
 import { errorMessage } from "../core/env";
+import { costSettingsSchema, setCostSettings, weeklyCost } from "../core/cost";
+import { requestEnrichment } from "../core/enrichment/service";
 import { DEFAULT_MODEL, FORCE_FAIL_FLAG } from "../core/llm";
 import { recomputeHistory } from "../products/optimization/closing";
-import { runDueRefreshes } from "../products/optimization/refresh";
+import { RefreshError, runDueRefreshes, startCampaignRefresh } from "../products/optimization/refresh";
+import { sweepStuckWork } from "../sweeper";
 
 export const adminRoutes = new Hono<AppEnv>();
 adminRoutes.use("*", requireRole("admin"));
@@ -108,3 +111,54 @@ adminRoutes.post("/campaigns/run-due", async (c) => c.json({ started: await runD
 
 // FR-CORE-21: history scores rebuilt from outcome records alone, to prove they are recomputable
 adminRoutes.post("/history/recompute", async (c) => c.json(await recomputeHistory(c.env)));
+
+// NFR-5: this week's external cost against the threshold. It alerts; nothing is stopped.
+adminRoutes.get("/cost", async (c) => c.json(await weeklyCost(c.env)));
+
+// Kept small so every admin page can ask for it
+adminRoutes.get("/cost-alert", async (c) => {
+  const w = await weeklyCost(c.env);
+  return c.json({ over: w.over, totalThb: w.totalThb, thresholdThb: w.settings.weeklyThresholdThb });
+});
+
+adminRoutes.post("/cost/settings", async (c) => {
+  const body = costSettingsSchema.safeParse(await c.req.json().catch(() => ({})));
+  if (!body.success) return c.json({ error: "invalid_settings" }, 400);
+  await setCostSettings(c.env, body.data);
+  return c.json(await weeklyCost(c.env));
+});
+
+// NFR-7: before a demo, refresh every active creator whose snapshot is over 12 hours old, and every active
+// campaign's tracked posts, so no demo step waits on a cold external pull
+const PREWARM_AGE_MS = 12 * 3_600_000;
+const PREWARM_LIMIT = 60;
+
+adminRoutes.post("/prewarm", async (c) => {
+  const cutoff = Date.now() - PREWARM_AGE_MS;
+  const { results } = await c.env.DB.prepare(
+    `SELECT c.id FROM creators c
+     WHERE c.active = 1 AND (c.instagram IS NOT NULL OR c.tiktok IS NOT NULL OR c.youtube IS NOT NULL)
+       AND COALESCE((SELECT MAX(s.fetched_at) FROM stat_snapshots s WHERE s.creator_id = c.id), 0) < ?1
+       AND NOT EXISTS (SELECT 1 FROM enrichment_jobs j WHERE j.creator_id = c.id AND j.status = 'pending')
+     ORDER BY c.updated_at DESC LIMIT ?2`,
+  )
+    .bind(cutoff, PREWARM_LIMIT)
+    .all<{ id: string }>();
+  const userId = c.get("userId");
+  const jobs = results.length ? await requestEnrichment(c.env, results.map((r) => r.id), "manual", userId) : 0;
+  const { results: active } = await c.env.DB.prepare("SELECT id FROM campaigns WHERE status = 'active' AND COALESCE(last_refresh_at, 0) < ?1")
+    .bind(cutoff)
+    .all<{ id: string }>();
+  let campaigns = 0;
+  for (const row of active) {
+    try {
+      if (!(await startCampaignRefresh(c.env, row.id, "manual", userId)).existing) campaigns++;
+    } catch (e) {
+      if (!(e instanceof RefreshError)) throw e;
+    }
+  }
+  return c.json({ creators: results.length, jobs, campaigns, olderThanHours: PREWARM_AGE_MS / 3_600_000 });
+});
+
+// §7.7: the cron's stuck-work sweep, on demand
+adminRoutes.post("/sweep", async (c) => c.json(await sweepStuckWork(c.env, Date.now(), true)));
