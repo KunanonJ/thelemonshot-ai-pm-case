@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+/* Light theme only for now: screenshots for the deck are taken in light mode */
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-white text-neutral-900 antialiased;
+}

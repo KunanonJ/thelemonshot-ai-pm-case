@@ -1,0 +1,189 @@
+export type Role = "admin" | "member" | "viewer";
+
+export type Brief = {
+  brand?: string;
+  productCategory: string;
+  objective: string;
+  audience?: string;
+  budgetBand?: string;
+  platforms: string[];
+  mustInclude?: string[];
+  mustExclude?: string[];
+  timeline?: string;
+};
+
+export type RunFlags = {
+  conflicts?: string[];
+  poolSize?: number;
+  candidates?: number;
+  thinPool?: boolean;
+  excludedByBrief?: number;
+  safetyExcluded?: number;
+  noData?: number;
+  shortlisted?: number;
+  llmUnavailable?: boolean;
+  llmFailure?: string | null;
+  split?: boolean;
+  sampleData?: boolean;
+};
+
+export type RunSummary = {
+  id: string;
+  status: string;
+  createdAt: number;
+  createdBy: string;
+  startedAt: number | null;
+  finishedAt: number | null;
+  reviewedAt: number | null;
+  error: string | null;
+  flags: RunFlags;
+  brief: Brief | null;
+};
+
+export type PlatformFeatures = { followers: number | null; engagementRate: number | null; medianViews: number | null; tier: string | null; fetchedAt: number };
+
+export type RunItem = {
+  id: string;
+  creatorId: string;
+  rank: number | null;
+  composite: number | null;
+  components: Record<string, number | null>;
+  dims: { audienceFit: number; brandSafety: number; creativeFit: number } | null;
+  features: { perPlatform?: Record<string, PlatformFeatures>; topHashtags?: string[]; tier?: string | null };
+  rationale: string | null;
+  flags: string[];
+  completeness: number;
+  stalenessDays: number | null;
+  recommended: boolean;
+  finalPick: boolean;
+  replacesCreatorId: string | null;
+  excludedReason: "safety_excluded" | "no_data" | null;
+  creator: { displayName: string; instagram: string | null; tiktok: string | null; youtube: string | null; isSample: boolean; categories: string[] };
+};
+
+export type RunDetail = RunSummary & {
+  items: RunItem[];
+  logs: { id: string; kind: string; payload: Record<string, unknown>; actor: string; createdAt: number }[];
+};
+
+export type Snapshot = { platform: string; followers: number | null; engagement_rate: number | null; median_views: number | null; fetched_at: number };
+
+export type Creator = {
+  id: string;
+  displayName: string;
+  categories: string[];
+  instagram: string | null;
+  tiktok: string | null;
+  youtube: string | null;
+  source: string;
+  isSample: boolean;
+  active: boolean;
+  enrichmentStatus: string;
+  createdAt: number;
+  snapshots: Snapshot[];
+};
+
+export type Scoring = {
+  version: string;
+  weights: Record<string, Record<string, number>>;
+  components: Record<string, { label: string; source: "data" | "llm"; description: string }>;
+  rules: Record<string, number>;
+};
+
+// ---------- ④ Campaign Proposal ----------
+
+export type ShortlistChoice = { mode: "none" } | { mode: "existing"; matrixRunId: string } | { mode: "new"; productCategory: string; platforms: string[] };
+
+export type ProposalBrief = {
+  template: string;
+  language: string;
+  brand: string;
+  product: string;
+  objective: string;
+  audience: string;
+  budgetBand?: string;
+  timeline: string;
+  retainerMonths?: number;
+  toneNotes: string;
+  mustAvoid: string[];
+  shortlist: ShortlistChoice;
+};
+
+export type LeafSpec = { key: string; label: string; kind: "line" | "text"; readOnly?: boolean };
+export type FieldSpec = LeafSpec | { key: string; label: string; kind: "list"; itemLabel: string; max: number; item: LeafSpec[] } | { key: string; label: string; kind: "creators" };
+
+export type ProposalTemplates = {
+  templates: { id: string; name: string; description: string; requiredFields: string[]; sections: { key: string; title: string }[] }[];
+  fields: Record<string, FieldSpec[]>;
+  maxAlternatives: number;
+  promptVersion: string;
+};
+
+export type ProposalVersion = {
+  id: string;
+  version: number;
+  origin: string;
+  content: Record<string, unknown>;
+  flags: string[];
+  note: string | null;
+  createdAt: number;
+  createdBy: string;
+  isCurrent?: boolean;
+};
+
+export type ProposalSection = {
+  key: string;
+  title: string;
+  status: "pending" | "generating" | "ready" | "failed";
+  error: string | null;
+  versionCount: number;
+  current: ProposalVersion | null;
+};
+
+export type Evidence = {
+  creatorId: string;
+  runItemId: string;
+  matrixRunId: string;
+  displayName: string;
+  handles: Record<string, string | null>;
+  isSample: boolean;
+  finalPick: boolean;
+  composite: number | null;
+  rationale: string | null;
+  platforms: { platform: string; followers: number | null; engagementRate: number | null; medianViews: number | null; fetchedAt: number }[];
+  topHashtags: string[];
+};
+
+export type ProposalFlags = { template: string; language: string; shortlist: { matrixRunId: string; mode: string } | null; sampleData?: boolean };
+
+export type ProposalSummary = {
+  id: string;
+  status: string;
+  createdAt: number;
+  createdBy: string;
+  reviewedAt: number | null;
+  flags: ProposalFlags;
+  brief: ProposalBrief | null;
+  progress: { total: number; ready: number; failed: number };
+};
+
+export type ProposalDetail = {
+  id: string;
+  status: string;
+  createdAt: number;
+  createdBy: string;
+  startedAt: number | null;
+  finishedAt: number | null;
+  reviewedAt: number | null;
+  flags: ProposalFlags;
+  brief: ProposalBrief;
+  template: { id: string; name: string; description: string };
+  sections: ProposalSection[];
+  shortlist: { id: string; status: string; reviewedAt: number | null; brief: Brief | null; picks: string[] } | null;
+  evidence: Record<string, Evidence>;
+  assumptions: string[];
+  sampleData: boolean;
+  logs: { id: string; kind: string; payload: Record<string, unknown>; actor: string; createdAt: number }[];
+};
+
+export type AttachableShortlist = { id: string; status: string; createdAt: number; reviewedAt: number | null; brief: Brief | null; shortlisted: number | null; sampleData: boolean };
