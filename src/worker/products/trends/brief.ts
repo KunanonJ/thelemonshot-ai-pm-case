@@ -1,6 +1,7 @@
 import { clusterPosts } from "./cluster";
 import type { UniquePost } from "./dedupe";
 import { EXEMPLAR_COUNT, MIN_SUPPORT, type SourceNote, type TrendExemplar, type TrendSample, type TrendTheme } from "./model";
+import { failedTermText } from "./failures";
 import { byEngagement, engagementOf, themeStats, windowOf } from "./stats";
 import { platformName } from "./terms";
 
@@ -14,6 +15,7 @@ export type TermRow = {
   platform: string;
   status: string;
   postCount: number | null;
+  // Both are plain sentences or failure codes (failures.ts), never raw Apify text
   note: string | null;
   error: string | null;
 };
@@ -91,9 +93,9 @@ export function buildTrendBrief(input: { terms: TermRow[]; posts: UniquePost[]; 
       .map((o) => platformName(o.platform));
     if (t.status === "failed") {
       const coverage = covered.length ? `${t.label} is covered by ${covered.join(" and ")} only.` : `${t.label} has no posts in this pull.`;
-      sources.push({ level: "warning", pullTermId: t.id, text: `${platformName(t.platform)} pull for ${t.label} failed: ${t.error ?? "no reason recorded"}. ${coverage}` });
+      sources.push({ level: "warning", pullTermId: t.id, text: `${platformName(t.platform)} pull for ${t.label} failed. ${failedTermText(t.error)} ${coverage}` });
     } else if (t.status === "ok" && (t.postCount ?? 0) === 0) {
-      sources.push({ level: "info", pullTermId: t.id, text: `No signal in this pull for ${t.label} on ${platformName(t.platform)}.${t.note ? ` ${t.note}.` : ""}` });
+      sources.push({ level: "info", pullTermId: t.id, text: `No signal in this pull for ${t.label} on ${platformName(t.platform)}.${t.note ? ` ${t.note}` : ""}` });
     }
   }
 

@@ -193,6 +193,7 @@ export function TrendsHome({ role }: { role: Role }) {
                     </Td>
                     <Td>
                       <StatusPill status={r.status} />
+                      {r.error && <div className="mt-1 text-xs text-red-700">{r.error}</div>}
                     </Td>
                     <Td className="tabular-nums">{r.uniquePosts ?? "-"}</Td>
                     <Td className="tabular-nums">

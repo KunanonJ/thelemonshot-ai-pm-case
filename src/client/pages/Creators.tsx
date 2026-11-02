@@ -5,7 +5,7 @@ import { ApiError, useApi, useResource } from "../lib/api";
 import { categoryLabel, fmtAgo, fmtCompact, fmtPct, PLATFORM_LABELS } from "../lib/format";
 import type { Creator, Role } from "../types";
 
-type DeadLetter = { id: string; kind: string; reason: string; creatorName: string | null; platform: string | null; createdAt: number; detail: Record<string, unknown> };
+type DeadLetter = { id: string; kind: string; reason: string; creatorName: string | null; platform: string | null; createdAt: number };
 type DiscoveryDefaults = Record<string, { label: string; instagram: string[]; tiktok: string[] }>;
 
 const STALE_MS = 72 * 3_600_000;

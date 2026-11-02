@@ -6,7 +6,8 @@ import { getDb } from "../../core/db/client";
 import { apifyRuns, runLogs, runs } from "../../core/db/schema";
 import { errorMessage } from "../../core/env";
 import { newId } from "../../core/util";
-import { startTrendPull, TrendInputError } from "./pipeline";
+import { failedTermText } from "./failures";
+import { startTrendPull, sweepStuckTrends, TrendInputError } from "./pipeline";
 import { trendAttachments, trendBriefs, trendPullTerms, trendPulls, trendWatchlist, TREND_PLATFORMS } from "./schema";
 import { MAX_POST_CAP, MAX_TERMS_PER_PULL, termInputSchema, termKey } from "./terms";
 
@@ -124,6 +125,7 @@ trendRoutes.get("/runs", async (c) => {
         runId: run.id,
         status: run.status,
         pullStatus: pull.status,
+        error: run.error,
         createdAt: run.createdAt,
         finishedAt: run.finishedAt,
         reviewedAt: run.reviewedAt,
@@ -167,6 +169,8 @@ trendRoutes.get("/runs/:id", async (c) => {
     runId: row.run.id,
     status: row.run.status,
     pullStatus: row.pull.status,
+    // The run's plain reason when it ended without a brief; raw text never reaches this response
+    error: row.run.error,
     createdAt: row.run.createdAt,
     finishedAt: row.run.finishedAt,
     reviewedAt: row.run.reviewedAt,
@@ -185,7 +189,7 @@ trendRoutes.get("/runs/:id", async (c) => {
       itemCount: term.itemCount,
       usageUsd: term.usageUsd,
       note: term.note,
-      error: term.error,
+      error: term.status === "failed" ? failedTermText(term.error) : null,
       apifyStatus: apify?.status ?? null,
       apifyRunId: term.apifyRunId,
       finishedAt: term.finishedAt,
@@ -227,3 +231,6 @@ trendRoutes.post("/runs/:id/review", requireRole("admin", "member"), async (c) =
   ]);
   return c.json({ ok: true });
 });
+
+// The same backstop the cron runs every 10 minutes, on demand. Returns how many stuck items it moved.
+trendRoutes.post("/admin/sweep", requireRole("admin"), async (c) => c.json({ moved: await sweepStuckTrends(c.env, Date.now()) }));

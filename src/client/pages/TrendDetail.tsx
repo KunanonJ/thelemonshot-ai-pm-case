@@ -99,7 +99,15 @@ export function TrendDetail({ role, id }: { role: Role; id: string }) {
       </Banner>
       {error && <div className="mt-4"><Banner tone="red" title={error === "run_not_in_draft" ? "This brief is no longer a draft." : "That didn't go through."} /></div>}
 
-      {!brief && (
+      {d.status === "failed" && (
+        <div className="mt-5">
+          <Banner tone="red" title="No brief was written for this pull.">
+            {d.error ?? "The pull stopped before it finished."}
+          </Banner>
+        </div>
+      )}
+
+      {!brief && d.status !== "failed" && (
         <Card className="mt-5 flex items-center gap-3 px-4 py-4 text-[13px]">
           <Spinner />
           <div>
@@ -298,7 +306,16 @@ export function TrendDetail({ role, id }: { role: Role; id: string }) {
           <ul className="mt-2 space-y-1 text-[13px] text-neutral-600">
             {d.logs.map((l) => (
               <li key={l.id}>
-                {fmtDateTime(l.createdAt)}: {l.kind === "decision" ? `${String(l.payload.decision)} by ${l.actor}` : l.kind === "llm" ? "Theme naming ran" : l.kind === "inputs" ? "Pull started" : l.kind}
+                {fmtDateTime(l.createdAt)}:{" "}
+                {l.kind === "decision"
+                  ? `${String(l.payload.decision)} by ${l.actor}`
+                  : l.kind === "llm"
+                    ? l.payload.failure
+                      ? "Theme naming could not run"
+                      : "Theme naming ran"
+                    : l.kind === "inputs"
+                      ? "Pull started"
+                      : l.kind}
               </li>
             ))}
           </ul>
