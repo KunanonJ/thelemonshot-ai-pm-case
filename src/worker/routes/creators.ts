@@ -95,13 +95,21 @@ creatorRoutes.patch("/:id", requireRole("admin"), async (c) => {
   return c.json({ ok: true });
 });
 
+// Only the fields the Creators page shows. The stored detail holds raw per-platform errors, which stay with operators.
 creatorRoutes.get("/dead-letters", requireRole("admin", "member"), async (c) => {
   const rows = await getDb(c.env)
-    .select({ dl: deadLetters, name: creators.displayName })
+    .select({
+      id: deadLetters.id,
+      kind: deadLetters.kind,
+      reason: deadLetters.reason,
+      platform: deadLetters.platform,
+      createdAt: deadLetters.createdAt,
+      creatorName: creators.displayName,
+    })
     .from(deadLetters)
     .leftJoin(creators, eq(deadLetters.creatorId, creators.id))
     .where(isNull(deadLetters.resolvedAt))
     .orderBy(desc(deadLetters.createdAt))
     .limit(100);
-  return c.json(rows.map((r) => ({ ...r.dl, creatorName: r.name })));
+  return c.json(rows);
 });

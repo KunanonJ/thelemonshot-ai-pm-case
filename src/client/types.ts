@@ -383,6 +383,7 @@ export type TrendWatchTerm = {
 export type TrendRunSummary = {
   runId: string;
   status: string;
+  error: string | null;
   pullStatus: string;
   createdAt: number;
   finishedAt: number | null;
@@ -452,6 +453,7 @@ export type TrendRunDetail = {
   scope: string;
   runId: string;
   status: string;
+  error: string | null;
   pullStatus: string;
   createdAt: number;
   finishedAt: number | null;

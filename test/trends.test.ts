@@ -11,6 +11,7 @@ import { hashtagsOf, parseInstagramItems, parseTikTokItems, type ParsedPost } fr
 import { byEngagement, engagementOf, themeStats, windowOf } from "../src/worker/products/trends/stats";
 import { actorRequest, displayLabel, termInputSchema, termKey, watchTokens } from "../src/worker/products/trends/terms";
 import { MIN_SUPPORT } from "../src/worker/products/trends/model";
+import { ACTOR_ERRORS_NOTE, actorNote, failedTermText, RUN_FAILURE_TEXT, TERM_FAILURE_CODES } from "../src/worker/products/trends/failures";
 
 const oct = (day: number) => Date.UTC(2026, 9, day);
 
@@ -257,7 +258,7 @@ describe("brief assembly (AC-TM-1, BR-TM-1, BR-TM-2)", () => {
   const terms: TermRow[] = [
     term("t1", "#snack", "tiktok", "ok", 5),
     term("t2", "#seaweed", "instagram", "ok", 2),
-    term("t3", "#seaweed", "tiktok", "ok", 0, { note: "Apify returned SEARCH_QUERY_NOT_FOUND" }),
+    term("t3", "#seaweed", "tiktok", "ok", 0, { note: ACTOR_ERRORS_NOTE }),
   ];
 
   it("names every theme with real pulled posts, labels the thin one a weak signal, and links exemplars", () => {
@@ -290,16 +291,17 @@ describe("brief assembly (AC-TM-1, BR-TM-1, BR-TM-2)", () => {
     const brief = buildTrendBrief({ terms, posts: set, hits: 9, duplicatesRemoved: 0, watched: ["snack", "seaweed"] });
     const empty = brief.sources.find((s) => s.text.startsWith("No signal in this pull for #seaweed on TikTok"));
     expect(empty).toMatchObject({ level: "info", pullTermId: "t3" });
-    expect(empty!.text).toContain("Apify returned SEARCH_QUERY_NOT_FOUND.");
+    expect(empty!.text).toContain(ACTOR_ERRORS_NOTE);
+    expect(empty!.text).not.toContain("SEARCH_QUERY_NOT_FOUND");
     expect(brief.sample.zeroSignalRuns).toEqual(["#seaweed on TikTok"]);
     expect(brief.flags).toContain("zero_signal_runs:1");
   });
 
   it("degrades to the other platform with a source note when one actor fails (BR-TM-2)", () => {
-    const failing: TermRow[] = [term("a", "#snack", "instagram", "failed", null, { error: "Apify run ended as FAILED" }), term("b", "#snack", "tiktok", "ok", 4)];
+    const failing: TermRow[] = [term("a", "#snack", "instagram", "failed", null, { error: "run_ended" }), term("b", "#snack", "tiktok", "ok", 4)];
     const brief = buildTrendBrief({ terms: failing, posts: set.slice(0, 4), hits: 4, duplicatesRemoved: 0, watched: ["snack"] });
     const note = brief.sources.find((s) => s.level === "warning");
-    expect(note!.text).toBe("Instagram pull for #snack failed: Apify run ended as FAILED. #snack is covered by TikTok only.");
+    expect(note!.text).toBe(`Instagram pull for #snack failed. ${failedTermText("run_ended")} #snack is covered by TikTok only.`);
     expect(brief.themes.length).toBeGreaterThan(0);
     expect(brief.flags).toContain("source_failed:1");
   });
@@ -428,5 +430,53 @@ describe("proposal assumptions (AC-TM-2)", () => {
   it("leaves the assumptions unchanged when no trend brief is attached", () => {
     expect(buildAssumptions(base)).toEqual(buildAssumptions({ ...base, trends: [] }));
     expect(buildAssumptions(base).some((l) => l.startsWith("Trend brief"))).toBe(false);
+  });
+});
+
+describe("failure wording and source notes (F10, BR-CORE-3)", () => {
+  // One plain sentence: a capital, a full stop, no code-like capitals, no colon, no braces
+  const plain = (s: string) => /^[A-Z][a-z].*\.$/.test(s) && !/[A-Z_]{4,}/.test(s) && !s.includes(":") && !s.includes("{");
+
+  it("gives every failure code its own plain sentence", () => {
+    for (const code of TERM_FAILURE_CODES) expect(plain(failedTermText(code))).toBe(true);
+    expect(new Set(TERM_FAILURE_CODES.map((code) => failedTermText(code))).size).toBe(TERM_FAILURE_CODES.length);
+  });
+
+  it("gives an unknown, empty or raw value the generic sentence, never the raw text", () => {
+    const generic = failedTermText("unexpected");
+    expect(failedTermText(null)).toBe(generic);
+    expect(failedTermText(undefined)).toBe(generic);
+    expect(failedTermText("Apify run ended as FAILED")).toBe(generic);
+    expect(failedTermText("constructor")).toBe(generic);
+    expect(failedTermText("__proto__")).toBe(generic);
+  });
+
+  it("says an actor reported errors without naming them, and only when it did", () => {
+    expect(actorNote([])).toBeNull();
+    expect(actorNote(["SEARCH_QUERY_NOT_FOUND"])).toBe(ACTOR_ERRORS_NOTE);
+    expect(plain(ACTOR_ERRORS_NOTE)).toBe(true);
+  });
+
+  it("keeps the run reasons plain", () => {
+    expect(plain(RUN_FAILURE_TEXT.brief)).toBe(true);
+    expect(plain(RUN_FAILURE_TEXT.stopped)).toBe(true);
+  });
+
+  it("writes a failed term's source note from the fixed sentence, whatever the row holds", () => {
+    const posts = [
+      post("tiktok", "1", { hashtags: ["snackdeal"], categories: ["food_snacks"] }),
+      post("tiktok", "2", { hashtags: ["snackdeal"], categories: ["food_snacks"] }),
+    ];
+    const rows: TermRow[] = [term("a", "#snack", "instagram", "failed", null, { error: "Apify run ended as FAILED: token abc123" }), term("b", "#snack", "tiktok", "ok", 2)];
+    const note = buildTrendBrief({ terms: rows, posts, hits: 2, duplicatesRemoved: 0, watched: ["snack"] }).sources.find((s) => s.level === "warning");
+    expect(note!.text).toBe(`Instagram pull for #snack failed. ${failedTermText(null)} #snack is covered by TikTok only.`);
+    expect(note!.text).not.toMatch(/FAILED|token|abc123/);
+  });
+
+  it("says when no other platform covered a failed term", () => {
+    const rows: TermRow[] = [term("a", "#snack", "instagram", "failed", null, { error: "run_ended" })];
+    const [note] = buildTrendBrief({ terms: rows, posts: [], hits: 0, duplicatesRemoved: 0, watched: ["snack"] }).sources;
+    expect(note).toMatchObject({ level: "warning", pullTermId: "a" });
+    expect(note!.text).toBe(`Instagram pull for #snack failed. ${failedTermText("run_ended")} #snack has no posts in this pull.`);
   });
 });
