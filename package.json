@@ -41,6 +41,10 @@
     "onlyBuiltDependencies": [
       "esbuild",
       "workerd"
-    ]
+    ],
+    "overrides": {
+      "pptxgenjs@4.0.1>image-size": "2.0.4",
+      "@esbuild-kit/core-utils@3.3.2>esbuild": "0.25.12"
+    }
   }
 }
