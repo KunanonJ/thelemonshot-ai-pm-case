@@ -8,3 +8,14 @@
 body {
   @apply bg-white text-neutral-900 antialiased;
 }
+
+/* Phones: a wide table scrolls sideways inside its card instead of being cut off or squeezed */
+@media (max-width: 767px) {
+  main :has(> table) {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  main table {
+    min-width: 640px;
+  }
+}

@@ -107,7 +107,7 @@ export function RunDetail({ role, id, userId }: { role: Role; id: string; userId
 
           {!inFlight && r.status !== "failed" && (
             <>
-              <div className="grid grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                 <StatCard label="Shortlisted" value={picks.length} hint="Draft until approved" />
                 <StatCard label="Candidates scored" value={r.flags.candidates ?? 0} hint={`${r.flags.poolSize ?? 0} in the pool, cap 40`} />
                 <StatCard label="Safety-excluded" value={safety.length} hint="Brand safety under 40" />
@@ -159,7 +159,7 @@ export function RunDetail({ role, id, userId }: { role: Role; id: string; userId
               )}
 
               {(safety.length > 0 || noData.length > 0) && (
-                <section className="grid grid-cols-2 gap-3">
+                <section className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <Card className="p-4">
                     <h3 className="text-[13px] font-semibold">Safety-excluded ({safety.length})</h3>
                     <ul className="mt-2 space-y-1.5 text-[13px]">

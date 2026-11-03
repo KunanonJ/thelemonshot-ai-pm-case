@@ -86,7 +86,7 @@ export function NewCampaign({ role }: { role: Role }) {
             <h1 className="text-base font-semibold">Campaign</h1>
             <p className="text-[13px] text-neutral-500">Posts refresh daily during the flight and weekly after it ends, until you close the campaign.</p>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Name">
               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Seaweed chips launch" />
             </Field>
@@ -120,7 +120,7 @@ export function NewCampaign({ role }: { role: Role }) {
               peers only.
             </p>
           </div>
-          <div className="grid grid-cols-[1fr_9rem_7rem_6rem_1.5rem] gap-2 text-xs text-neutral-500">
+          <div className="hidden grid-cols-[1fr_9rem_7rem_6rem_1.5rem] gap-2 text-xs text-neutral-500 sm:grid">
             <span>Post URL</span>
             <span>Handle</span>
             <span>Baseline views</span>
@@ -129,12 +129,12 @@ export function NewCampaign({ role }: { role: Role }) {
           </div>
           {rows.map((r, i) => (
             <div key={i}>
-              <div className="grid grid-cols-[1fr_9rem_7rem_6rem_1.5rem] items-center gap-2">
-                <Input value={r.url} onChange={(e) => update(i, { url: e.target.value })} placeholder="https://www.tiktok.com/@creator/video/…" />
+              <div className="grid grid-cols-2 items-center gap-2 sm:grid-cols-[1fr_9rem_7rem_6rem_1.5rem]">
+                <Input className="col-span-2 sm:col-span-1" aria-label="Post URL" value={r.url} onChange={(e) => update(i, { url: e.target.value })} placeholder="https://www.tiktok.com/@creator/video/…" />
                 <Input value={r.handle} onChange={(e) => update(i, { handle: e.target.value })} placeholder={needsHandle(r.url) ? "@needed" : "@optional"} />
-                <Input type="number" min={0} value={r.baselineViews} onChange={(e) => update(i, { baselineViews: e.target.value })} />
-                <Input type="number" min={0} step="0.1" value={r.baselineEr} onChange={(e) => update(i, { baselineEr: e.target.value })} />
-                <button className="text-xs text-neutral-400 hover:text-red-700" onClick={() => setRows((cur) => (cur.length > 1 ? cur.filter((_, j) => j !== i) : [blank()]))} aria-label="Remove row">
+                <Input type="number" min={0} aria-label="Baseline views" placeholder="Baseline views" value={r.baselineViews} onChange={(e) => update(i, { baselineViews: e.target.value })} />
+                <Input type="number" min={0} step="0.1" aria-label="Baseline ER %" placeholder="Baseline ER %" value={r.baselineEr} onChange={(e) => update(i, { baselineEr: e.target.value })} />
+                <button className="justify-self-start text-xs text-neutral-400 hover:text-red-700 sm:justify-self-auto" onClick={() => setRows((cur) => (cur.length > 1 ? cur.filter((_, j) => j !== i) : [blank()]))} aria-label="Remove row">
                   Remove
                 </button>
               </div>
