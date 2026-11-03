@@ -2,6 +2,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { requireRole, type AppEnv } from "../../core/auth";
+import { paidAction } from "../../core/limits";
 import { getDb, isUniqueViolation } from "../../core/db/client";
 import { briefs, proposalSections, proposalVersions, runLogs, runs } from "../../core/db/schema";
 import { QueueUnavailable } from "../../core/messages";
@@ -57,7 +58,7 @@ proposalRoutes.get("/shortlists", async (c) => {
   );
 });
 
-proposalRoutes.post("/runs", requireRole("admin", "member"), async (c) => {
+proposalRoutes.post("/runs", requireRole("admin", "member"), paidAction, async (c) => {
   const parsed = proposalBriefSchema.safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) return c.json({ error: "invalid_brief", issues: issues(parsed.error) }, 400);
   try {
@@ -213,7 +214,7 @@ const regenerateSchema = z.object({
   instruction: z.string().trim().max(300).optional(),
 });
 
-proposalRoutes.post("/runs/:id/sections/:key/regenerate", requireRole("admin", "member"), async (c) => {
+proposalRoutes.post("/runs/:id/sections/:key/regenerate", requireRole("admin", "member"), paidAction, async (c) => {
   const ctx = await editable(c, asSectionKey(c.req.param("key")));
   if ("error" in ctx) return ctx.error;
   const { db, doc, key } = ctx;

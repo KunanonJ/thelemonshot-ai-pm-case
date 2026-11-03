@@ -2,7 +2,8 @@ import { z } from "zod";
 import { errorMessage } from "./env";
 
 // NFR-5: external cost over the last seven days against the Operator's weekly threshold. Breaching it raises
-// an alert in the app; it never stops anything. Model costs come from llm_calls, Apify costs from Apify's own
+// an alert in the app and pauses non-admins' new paid runs (core/limits.ts); work already running or scheduled
+// carries on. Model costs come from llm_calls, Apify costs from Apify's own
 // per-run figure in apify_runs. fal.ai responses carry no cost, so image generations are counted, not priced.
 
 const WEEK_MS = 7 * 86_400_000;

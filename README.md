@@ -40,6 +40,8 @@ Checks: `pnpm test` (unit), `pnpm exec tsc -p tsconfig.worker.json --noEmit` and
 
 `pnpm db:migrate:remote`, then `pnpm run deploy` (plain `pnpm deploy` is pnpm's own command). Keys go in with `wrangler secret put <NAME>`, using the names in `.dev.vars.example`. None of them is ever in the repo.
 
+Without Apify, `pnpm db:seed:demo:remote` (or `:local`) loads 10 fictional demo creators from `seed/demo-creators.sql`, labelled sample data. Re-running it resets their stats' age so shortlists don't flag them as stale.
+
 ## Docs
 
 - [docs/build-plan.md](docs/build-plan.md): decisions, phase status, the error-path review, and every call made where the spec was silent

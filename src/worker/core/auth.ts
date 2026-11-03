@@ -71,7 +71,16 @@ export function parseCachedRole(raw: string | null): CachedRole | null {
   }
 }
 
-// The role lives in the Clerk user's public metadata ({"role": "admin"}); a user without one is a viewer.
+// Sign-up is open, so anyone who signs in can try every product: a user with no role set is a member.
+// {"role": "viewer"} in public metadata still makes someone read-only; {"role": "admin"} adds System and the roster.
+// Members' paid runs are capped in core/limits.ts.
+export const DEFAULT_ROLE: Role = "member";
+
+export function roleFromMetadata(raw: unknown): Role {
+  return typeof raw === "string" && ROLES.includes(raw) ? (raw as Role) : DEFAULT_ROLE;
+}
+
+// The role lives in the Clerk user's public metadata ({"role": "admin"}).
 // Null means Clerk can't be asked and no earlier answer is cached, so the request can't be authorised.
 async function resolveRole(env: Env, clerk: ClerkClient, userId: string): Promise<Role | null> {
   const cacheKey = `role:${userId}`;
@@ -80,8 +89,7 @@ async function resolveRole(env: Env, clerk: ClerkClient, userId: string): Promis
   let role: Role;
   try {
     const user = await clerk.users.getUser(userId);
-    const raw = user.publicMetadata?.role;
-    role = typeof raw === "string" && ROLES.includes(raw) ? (raw as Role) : "viewer";
+    role = roleFromMetadata(user.publicMetadata?.role);
   } catch (e) {
     console.error("clerk role lookup failed", { userId, cached: cached?.role ?? null, error: errorMessage(e) });
     return cached?.role ?? null;

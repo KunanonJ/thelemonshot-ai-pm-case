@@ -2,6 +2,7 @@ import { and, count, eq, inArray } from "drizzle-orm";
 import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { requireRole, type AppEnv } from "../../core/auth";
+import { paidAction } from "../../core/limits";
 import { getDb } from "../../core/db/client";
 import { runs } from "../../core/db/schema";
 import { newId } from "../../core/util";
@@ -53,7 +54,7 @@ dcoRoutes.get("/allowlist", (c) => c.json(allowlistView()));
 dcoRoutes.get("/runs", async (c) => c.json(await listDcoRuns(c.env)));
 
 // FR-DC-1: brief, base asset and rights attestation in one request. Without the attestation nothing is created.
-dcoRoutes.post("/runs", requireRole("admin", "member"), async (c) => {
+dcoRoutes.post("/runs", requireRole("admin", "member"), paidAction, async (c) => {
   const form = await c.req.formData().catch(() => null);
   if (!form) return c.json({ error: "invalid_request" }, 400);
   if (form.get("attest") !== "true") return c.json({ error: "rights_attestation_required" }, 400);
@@ -168,12 +169,12 @@ dcoRoutes.post("/runs/:id/copy/:copyId/review", requireRole("admin", "member"), 
 });
 
 // BR-DC-1: a failed slot is retried on its own; nothing else reruns
-dcoRoutes.post("/runs/:id/visuals/:key/retry", requireRole("admin", "member"), async (c) => {
+dcoRoutes.post("/runs/:id/visuals/:key/retry", requireRole("admin", "member"), paidAction, async (c) => {
   const result = await requeueVisual(c.env, originOf(c), c.req.param("id"), c.req.param("key"), c.get("userId"));
   return retryResponse(c, result);
 });
 
-dcoRoutes.post("/runs/:id/segments/:key/retry", requireRole("admin", "member"), async (c) => {
+dcoRoutes.post("/runs/:id/segments/:key/retry", requireRole("admin", "member"), paidAction, async (c) => {
   const result = await requeueSegment(c.env, c.req.param("id"), c.req.param("key"), c.get("userId"));
   return retryResponse(c, result);
 });
