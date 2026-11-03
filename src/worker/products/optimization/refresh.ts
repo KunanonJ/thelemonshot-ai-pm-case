@@ -1,11 +1,12 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { getDb, isUniqueViolation, type Db } from "../../core/db/client";
-import { campaignPosts, campaignRefreshes, campaigns, contentItems, contentMetrics } from "../../core/db/schema";
+import { campaignPosts, campaignRefreshes, campaigns, contentItems, contentMetrics, creators } from "../../core/db/schema";
 import { errorMessage, readSecret } from "../../core/env";
 import { abandonApifyRun, ACTORS, finishApifyRun, getActorRun, getDatasetItems, startActor } from "../../core/enrichment/apify";
 import { classifySourceFailure, SOURCE_FAILURE_TEXT, type SourceFailure } from "../../core/enrichment/failures";
 import { instagramPostResults, tiktokPostResults, youtubePostResults, type PostResult } from "../../core/enrichment/posts";
+import { samplePostMetrics } from "../../core/enrichment/sample";
 import { fetchYouTubeVideos } from "../../core/enrichment/youtube";
 import type { ApifyPollMessage, CampaignDigestMessage, CampaignRefreshTimeoutMessage } from "../../core/messages";
 import { newId } from "../../core/util";
@@ -28,7 +29,7 @@ const DIGEST_REDRIVE_WITHIN_MS = 6 * 3_600_000;
 export class RefreshError extends Error {}
 
 type Trigger = "schedule" | "manual" | "registration";
-type Tracked = { id: string; contentId: string; platform: "instagram" | "tiktok" | "youtube"; url: string; misses: number; platformPostId: string };
+type Tracked = { id: string; contentId: string; platform: "instagram" | "tiktok" | "youtube"; url: string; misses: number; platformPostId: string; postedAt: number | null };
 
 async function trackedPosts(db: Db, campaignId: string, platform?: Tracked["platform"]): Promise<Tracked[]> {
   return db
@@ -39,6 +40,7 @@ async function trackedPosts(db: Db, campaignId: string, platform?: Tracked["plat
       url: campaignPosts.url,
       misses: campaignPosts.misses,
       platformPostId: contentItems.platformPostId,
+      postedAt: contentItems.postedAt,
     })
     .from(campaignPosts)
     .innerJoin(contentItems, eq(campaignPosts.contentId, contentItems.id))
@@ -91,6 +93,13 @@ export async function startCampaignRefresh(env: Env, campaignId: string, trigger
     const mine = posts.filter((p) => p.platform === platform);
     let started: { localRunId: string; apifyRunId: string } | null = null;
     try {
+      // Posts by seeded demo creators are fictional, so their metrics come from the sample source, labelled "sample"
+      if (await sampleOnly(db, mine)) {
+        const now = Date.now();
+        const results = new Map<string, PostResult>(mine.map((p) => [p.platformPostId, { status: "ok", metrics: samplePostMetrics(p.contentId, p.postedAt, now) }]));
+        await applyPlatformResults(db, refreshId, platform, mine, results, "sample");
+        continue;
+      }
       if (platform === "youtube") {
         // YouTube answers in seconds, so it runs inline
         const res = await fetchYouTubeVideos(env, mine.map((p) => p.platformPostId));
@@ -169,6 +178,17 @@ export async function failCampaignPostsPoll(env: Env, msg: ApifyPollMessage): Pr
   await tryFinalize(env, msg.refreshId);
 }
 
+// True when every post belongs to a seeded demo creator (creators.source = 'seed')
+async function sampleOnly(db: Db, posts: Tracked[]): Promise<boolean> {
+  if (!posts.length) return false;
+  const rows = await db
+    .select({ source: creators.source })
+    .from(contentItems)
+    .innerJoin(creators, eq(contentItems.creatorId, creators.id))
+    .where(inArray(contentItems.id, posts.map((p) => p.contentId)));
+  return rows.length === posts.length && rows.every((r) => r.source === "seed");
+}
+
 // The raw answer is kept for audit; losing that copy doesn't make the numbers any less real
 async function archive(env: Env, key: string, data: unknown): Promise<void> {
   await env.FILES.put(key, JSON.stringify(data), { httpMetadata: { contentType: "application/json" } }).catch((e) =>
@@ -187,7 +207,7 @@ async function applyPlatformResults(
   platform: Tracked["platform"],
   posts: Tracked[],
   results: Map<string, PostResult>,
-  source: "apify" | "youtube_api",
+  source: "apify" | "youtube_api" | "sample",
 ): Promise<void> {
   const unanswered = sql`NOT EXISTS (SELECT 1 FROM json_each((SELECT done FROM campaign_refreshes WHERE id = ${refreshId})) WHERE value = ${platform})`;
   const now = Date.now();

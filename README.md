@@ -42,7 +42,9 @@ Merging to `main` deploys automatically: [`.github/workflows/ci-cd.yml`](.github
 
 By hand: `pnpm db:migrate:remote`, then `pnpm run deploy` (plain `pnpm deploy` is pnpm's own command). Keys go in with `wrangler secret put <NAME>`, using the names in `.dev.vars.example`. None of them is ever in the repo.
 
-Without Apify, `pnpm db:seed:demo:remote` (or `:local`) loads 10 fictional demo creators from `seed/demo-creators.sql`, labelled sample data. Re-running it resets their stats' age so shortlists don't flag them as stale.
+Without Apify, `pnpm db:seed:demo:remote` (or `:local`) loads 20 fictional demo creators, with two posts each, from `seed/demo-creators.sql` (built by `seed/gen_demo_seed.py`), labelled sample data. Re-running it resets their stats' age so shortlists don't flag them as stale.
+
+Sample sources (`src/worker/core/enrichment/sample.ts`) stand in for Apify so every product runs end to end in a demo. Campaign refreshes on posts by demo creators always use invented metrics. Trend pulls use invented posts (every handle starts with `demo_`) only while the setting is on: `wrangler kv key put --binding CONFIG --remote "demo:sample-sources" "1"`, and `delete` it to go back to live pulls. Both are labelled sample data in the app.
 
 ## Docs
 

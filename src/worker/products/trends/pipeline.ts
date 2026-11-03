@@ -4,6 +4,7 @@ import { getDb, insertChunked } from "../../core/db/client";
 import { deadLetters, runLogs, runs } from "../../core/db/schema";
 import { finishApifyRun, getActorRun, getDatasetItems, startActor } from "../../core/enrichment/apify";
 import { errorMessage } from "../../core/env";
+import { SAMPLE_TERM_NOTE, sampleSourcesOn, sampleTrendPosts } from "../../core/enrichment/sample";
 import { callJson } from "../../core/llm";
 import type { TrendBriefMessage, TrendPollMessage, TrendPullTimeoutMessage } from "../../core/messages";
 import { buildTrendBrief, type BriefBuild, type TermRow } from "./brief";
@@ -73,6 +74,8 @@ export async function startTrendPull(env: Env, requestedBy: string, termIds: str
   const now = Date.now();
   const runId = newId();
   const pullId = newId();
+  // While an admin has sample sources on, each term gets invented posts instead of an Apify run (core/enrichment/sample.ts)
+  const sample = await sampleSourcesOn(env);
   const rows = plan.map(({ term, platform }) => ({
     id: newId(),
     pullId,
@@ -93,7 +96,7 @@ export async function startTrendPull(env: Env, requestedBy: string, termIds: str
       product: "trends",
       status: "running",
       inputHash: hash,
-      flags: { kind: "pull", terms: chosen.map((t) => displayLabel(t.kind, t.term)), platforms: [...new Set(plan.map((p) => p.platform))] },
+      flags: { kind: "pull", terms: chosen.map((t) => displayLabel(t.kind, t.term)), platforms: [...new Set(plan.map((p) => p.platform))], ...(sample ? { sampleData: true } : {}) },
       createdBy: requestedBy,
       createdAt: now,
       startedAt: now,
@@ -125,6 +128,16 @@ export async function startTrendPull(env: Env, requestedBy: string, termIds: str
   let started = 0;
   let failedToStart = 0;
   for (const row of rows) {
+    if (sample) {
+      const posts = sampleTrendPosts({ term: row.term, category: row.category }, row.platform, row.postCap, Date.now());
+      await saveHits(env, row, posts);
+      await db
+        .update(trendPullTerms)
+        .set({ status: "ok", itemCount: posts.length, postCount: posts.length, usageUsd: 0, note: SAMPLE_TERM_NOTE, error: null, finishedAt: Date.now() })
+        .where(and(eq(trendPullTerms.id, row.id), eq(trendPullTerms.status, "running")));
+      started++;
+      continue;
+    }
     const req = actorRequest(row.platform, row.kind, row.term, row.postCap);
     let localRunId: string | null = null;
     try {
@@ -142,7 +155,7 @@ export async function startTrendPull(env: Env, requestedBy: string, termIds: str
       await guarded("trend term could not be marked failed", () => failTerm(env, { id: row.id, pullId, localRunId }, "start_failed", "START_FAILED", errorMessage(e)));
     }
   }
-  if (started === 0) await settlePull(env, pullId);
+  if (started === 0 || sample) await settlePull(env, pullId);
   return { runId, pullId, deduped: false, started, failedToStart, terms: rows.length };
 }
 
@@ -258,7 +271,7 @@ function uniqueByPlatformId(posts: ParsedPost[]): ParsedPost[] {
 }
 
 // Posts are shared across pulls: upsert by platform post ID, then link each term's hits to the stored row
-async function saveHits(env: Env, term: PullTermRow, posts: ParsedPost[]): Promise<void> {
+async function saveHits(env: Env, term: Pick<PullTermRow, "id" | "pullId" | "platform">, posts: ParsedPost[]): Promise<void> {
   if (!posts.length) return;
   const db = getDb(env);
   const now = Date.now();
@@ -451,7 +464,8 @@ async function saveBrief(env: Env, input: BriefInput, c: ComposedBrief): Promise
       .onConflictDoNothing(),
     db
       .update(runs)
-      .set({ status: "draft", finishedAt: now, flags: { ...(run.flags as Record<string, unknown>), llmFailure: c.llmFailure, sampleData: false } })
+      // Real pulls are real public posts, not sample data; a pull from the sample source keeps its label
+      .set({ status: "draft", finishedAt: now, flags: { ...(run.flags as Record<string, unknown>), llmFailure: c.llmFailure, sampleData: (run.flags as { sampleData?: unknown } | null)?.sampleData === true } })
       .where(and(eq(runs.id, run.id), eq(runs.status, "running"))),
     db.update(trendPulls).set({ status: "done", finishedAt: now }).where(and(eq(trendPulls.id, pull.id), eq(trendPulls.status, "building"))),
     ...log,
