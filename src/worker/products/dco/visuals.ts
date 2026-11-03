@@ -1,9 +1,12 @@
-// FR-DC-3: visual prompts are fixed in code. They name no person, price, claim or figure.
-export const DCO_VISUAL_PROMPT_VERSION = "dco-visual-v1";
-const NEGATIVE = "people faces hands text logo";
+// FR-DC-3: visual prompts are fixed in code. They name no person, price, claim or figure. FLUX.2 [klein] has no
+// negative prompt, so what must not appear is said in the prompt itself, and the product is to stay as uploaded.
+export const DCO_VISUAL_PROMPT_VERSION = "dco-visual-v2";
+// The one sentence every visual prompt ends with. The unit tests strip it before checking that no prompt asks for a person.
+export const PROMPT_EXCLUSIONS = "No people, no faces, no hands, no added text or logos.";
+const KEEP = `Keep the product exactly as it is: same shape, colours, label text and proportions. ${PROMPT_EXCLUSIONS}`;
 
-// Every value must be on FAL_ALLOWLIST; the unit tests check that for the whole plan
-export type VisualModelId = "fal-ai/bria/expand" | "fal-ai/bria/background/replace" | "fal-ai/bria/product-shot";
+// Every value must be on IMAGE_ALLOWLIST; the unit tests check that for the whole plan
+export type VisualModelId = "@cf/black-forest-labs/flux-2-klein-4b" | "fal-ai/bria/expand" | "fal-ai/bria/background/replace" | "fal-ai/bria/product-shot";
 
 export type VisualPlan = {
   key: string;
@@ -11,19 +14,21 @@ export type VisualPlan = {
   label: string;
   modelId: VisualModelId;
   format: string;
-  // Target canvas for layout (expand) slots only
+  // Output size in pixels; fal's expand model reads it as the target canvas, Workers AI as the image size
   canvas: [number, number] | null;
   prompt: string;
   negativePrompt: string | null;
 };
 
-// One fal request per slot. Three layout slots cover the feed and story sizes; two scene slots change the setting.
+const FLUX = "@cf/black-forest-labs/flux-2-klein-4b" as const;
+
+// One request per slot. Three format slots cover the feed and story sizes; two scene slots change the setting.
 export const VISUAL_PLAN: readonly VisualPlan[] = [
-  { key: "format-1x1", kind: "format", label: "Square feed, 1:1", modelId: "fal-ai/bria/expand", format: "1:1", canvas: [1080, 1080], prompt: "soft neutral studio backdrop", negativePrompt: null },
-  { key: "format-4x5", kind: "format", label: "Portrait feed, 4:5", modelId: "fal-ai/bria/expand", format: "4:5", canvas: [1080, 1350], prompt: "soft neutral studio backdrop", negativePrompt: null },
-  { key: "format-9x16", kind: "format", label: "Stories and reels, 9:16", modelId: "fal-ai/bria/expand", format: "9:16", canvas: [1080, 1920], prompt: "soft neutral studio backdrop", negativePrompt: null },
-  { key: "scene-studio", kind: "scene", label: "Studio backdrop", modelId: "fal-ai/bria/background/replace", format: "as uploaded", canvas: null, prompt: "clean light grey studio backdrop with soft window light", negativePrompt: NEGATIVE },
-  { key: "scene-kitchen", kind: "scene", label: "Kitchen counter", modelId: "fal-ai/bria/product-shot", format: "1:1", canvas: null, prompt: "bright kitchen counter with a wooden board and soft morning light", negativePrompt: null },
+  { key: "format-1x1", kind: "format", label: "Square feed, 1:1", modelId: FLUX, format: "1:1", canvas: [1024, 1024], prompt: `Recompose this product photo as a square 1:1 image on a soft neutral studio backdrop, extending the background as needed. ${KEEP}`, negativePrompt: null },
+  { key: "format-4x5", kind: "format", label: "Portrait feed, 4:5", modelId: FLUX, format: "4:5", canvas: [864, 1080], prompt: `Recompose this product photo as a tall 4:5 vertical image on a soft neutral studio backdrop, extending the background above and below. ${KEEP}`, negativePrompt: null },
+  { key: "format-9x16", kind: "format", label: "Stories and reels, 9:16", modelId: FLUX, format: "9:16", canvas: [576, 1024], prompt: `Recompose this product photo as a vertical 9:16 story image on a soft neutral studio backdrop, extending the background above and below. ${KEEP}`, negativePrompt: null },
+  { key: "scene-studio", kind: "scene", label: "Studio backdrop", modelId: FLUX, format: "1:1", canvas: [1024, 1024], prompt: `Place this exact product on a clean light grey studio backdrop with soft window light. ${KEEP}`, negativePrompt: null },
+  { key: "scene-kitchen", kind: "scene", label: "Kitchen counter", modelId: FLUX, format: "1:1", canvas: [1024, 1024], prompt: `Place this exact product on a bright kitchen counter with a wooden board and soft morning light. ${KEEP}`, negativePrompt: null },
 ];
 
 export const planFor = (key: string): VisualPlan | null => VISUAL_PLAN.find((p) => p.key === key) ?? null;
@@ -31,6 +36,8 @@ export const planFor = (key: string): VisualPlan | null => VISUAL_PLAN.find((p) 
 // The request body per endpoint, using only the parameters each endpoint documents (fal model pages, 2 Nov 2026)
 export function falInput(plan: VisualPlan, imageUrl: string): Record<string, unknown> {
   switch (plan.modelId) {
+    case "@cf/black-forest-labs/flux-2-klein-4b":
+      throw new Error("Workers AI models run through workers-image.ts, never fal");
     case "fal-ai/bria/expand":
       return { image_url: imageUrl, aspect_ratio: plan.format, canvas_size: plan.canvas, prompt: plan.prompt };
     case "fal-ai/bria/background/replace":

@@ -1,10 +1,18 @@
-// FR-DC-2 and AC-DC-2. This list is the only set of image models DCO can call, and it holds scene, background
-// and layout models only. Adding a model is a code change that goes through this file and the audit test; it is
-// never a UI setting. Each entry was checked against fal's own model page on the date shown.
+// FR-DC-2 and AC-DC-2. This list is the only set of image models DCO can call. Adding a model is a code change that
+// goes through this file and the audit test; it is never a UI setting. Each entry was checked against the provider's
+// own model page on the date shown.
+//
+// Since 4 Nov 2026 the plan runs on Cloudflare Workers AI (free within the daily allowance) instead of fal.ai. FLUX.2
+// [klein] is a general image model, not a product-only one, so it is marked generalPurpose: it is only ever sent the
+// uploaded product photo (with the planner's rights attestation) and the fixed prompts in visuals.ts, which rule out
+// people, faces and hands, and every result is a draft until a person approves it. The fal.ai client stays in fal.ts
+// for when the Bria product models are funded again; they are not on this list, so nothing can call them.
 
 export type AllowedModel = {
   id: string;
-  role: "layout" | "scene";
+  role: "layout" | "scene" | "layout and scene";
+  // A model that could render anything, kept to product edits by the fixed prompts and the input it is given
+  generalPurpose: boolean;
   description: string;
   docs: string;
   verifiedOn: string;
@@ -12,30 +20,15 @@ export type AllowedModel = {
   providerSafetyField: string;
 };
 
-export const FAL_ALLOWLIST: readonly AllowedModel[] = [
+export const IMAGE_ALLOWLIST: readonly AllowedModel[] = [
   {
-    id: "fal-ai/bria/expand",
-    role: "layout",
-    description: "Extends the canvas to a new aspect ratio and fills the new area with background",
-    docs: "https://fal.ai/models/fal-ai/bria/expand/api",
-    verifiedOn: "2026-11-02",
-    providerSafetyField: "None documented on this endpoint",
-  },
-  {
-    id: "fal-ai/bria/background/replace",
-    role: "scene",
-    description: "Replaces the background behind the product and keeps the product in place",
-    docs: "https://fal.ai/models/fal-ai/bria/background/replace/api",
-    verifiedOn: "2026-11-02",
-    providerSafetyField: "None documented on this endpoint",
-  },
-  {
-    id: "fal-ai/bria/product-shot",
-    role: "scene",
-    description: "Places the product in a new setting described in plain English",
-    docs: "https://fal.ai/models/fal-ai/bria/product-shot/api",
-    verifiedOn: "2026-11-02",
-    providerSafetyField: "None documented on this endpoint",
+    id: "@cf/black-forest-labs/flux-2-klein-4b",
+    role: "layout and scene",
+    generalPurpose: true,
+    description: "Edits the uploaded product photo into a new format or setting from a fixed prompt",
+    docs: "https://developers.cloudflare.com/workers-ai/models/flux-2-klein-4b/",
+    verifiedOn: "2026-11-04",
+    providerSafetyField: "None documented on this model",
   },
 ];
 
@@ -54,14 +47,14 @@ const BLOCKED_PATTERNS: { label: string; re: RegExp }[] = [
 
 export type AllowlistAudit = { ok: boolean; checked: number; violations: { id: string; reason: string }[] };
 
-// AC-DC-2: fails if an entry is listed twice, is not a fal-ai model path, or names a blocked category
+// AC-DC-2: fails if an entry is listed twice, is not a fal-ai or Workers AI model path, or names a blocked category
 export function auditAllowlist(models: readonly AllowedModel[]): AllowlistAudit {
   const violations: { id: string; reason: string }[] = [];
   const seen = new Set<string>();
   for (const m of models) {
     if (seen.has(m.id)) violations.push({ id: m.id, reason: "Listed more than once" });
     seen.add(m.id);
-    if (!/^fal-ai\/[a-z0-9-]+(\/[a-z0-9-]+)*$/.test(m.id)) violations.push({ id: m.id, reason: "Not a fal-ai model path" });
+    if (!/^(fal-ai\/[a-z0-9-]+(\/[a-z0-9-]+)*|@cf\/[a-z0-9-]+\/[a-z0-9.-]+)$/.test(m.id)) violations.push({ id: m.id, reason: "Not a fal-ai or Workers AI model path" });
     const text = `${m.id} ${m.role} ${m.description}`;
     for (const p of BLOCKED_PATTERNS) if (p.re.test(text)) violations.push({ id: m.id, reason: `Matches a blocked pattern: ${p.label}` });
   }
@@ -69,7 +62,7 @@ export function auditAllowlist(models: readonly AllowedModel[]): AllowlistAudit 
 }
 
 export function allowedModel(id: string): AllowedModel | null {
-  return FAL_ALLOWLIST.find((m) => m.id === id) ?? null;
+  return IMAGE_ALLOWLIST.find((m) => m.id === id) ?? null;
 }
 
 // Called before every provider submission, so a plan entry that is not allowlisted can never be sent
@@ -80,5 +73,5 @@ export function assertAllowed(id: string): AllowedModel {
 }
 
 export function allowlistView() {
-  return { models: FAL_ALLOWLIST, blockedFamilies: BLOCKED_FAMILIES, audit: auditAllowlist(FAL_ALLOWLIST) };
+  return { models: IMAGE_ALLOWLIST, blockedFamilies: BLOCKED_FAMILIES, audit: auditAllowlist(IMAGE_ALLOWLIST) };
 }

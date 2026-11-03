@@ -5,7 +5,7 @@ import { getDb, insertChunked, type Db } from "../../core/db/client";
 import { briefs, runs } from "../../core/db/schema";
 import { errorMessage } from "../../core/env";
 import { allowedFigures } from "../../core/figures";
-import { callJson } from "../../core/llm";
+import { callJson, isWorkersAiModel } from "../../core/llm";
 import type { DcoCopyMessage, DcoVisualMessage, DcoVisualPollMessage } from "../../core/messages";
 import { inputHash, newId } from "../../core/util";
 import { assertAllowed } from "./allowlist";
@@ -14,6 +14,7 @@ import { briefTexts, dcoBriefSchema, type DcoBrief } from "./brief";
 import { buildCopyPrompt, copyJsonSchema, copyOutputSchema, DCO_COPY_PROMPT_VERSION, guardCopyOption, type CopyOption } from "./copy";
 import { downloadFalImage, FalError, readFalResult, readFalStatus, submitToFal, type FalFailure } from "./fal";
 import { DCO_EVENT_KINDS, dcoAssets, dcoCopy, dcoEvents, dcoSegments, dcoVisuals, type DcoProvenance } from "./schema";
+import { editWithWorkersAi } from "./workers-image";
 import { DCO_VISUAL_PROMPT_VERSION, falInput, isSafetyErrorType, isSafetyFlagged, outputImages, outputSeed, planFor, VISUAL_PLAN, type VisualPlan } from "./visuals";
 
 const DEDUPE_WINDOW_MS = 2 * 60_000;
@@ -390,8 +391,9 @@ async function discardForSafety(env: Env, runId: string, row: { planKey: string;
   await settleRun(env, runId);
 }
 
-// FR-DC-2: submits one allowlisted request for a visual slot and queues the polls. The base asset is reached
-// through a short-lived link minted here (FR-DC-1); nothing else leaves the Worker.
+// FR-DC-2: makes one allowlisted request for a visual slot. A Workers AI model answers in the same call, so the image
+// is stored at once; a fal model is submitted and polled, reaching the base asset through a short-lived link minted
+// here (FR-DC-1). Nothing but the product photo and the fixed prompt leaves the Worker.
 export async function handleDcoVisual(env: Env, msg: DcoVisualMessage): Promise<void> {
   const db = getDb(env);
   const plan = planFor(msg.planKey);
@@ -412,6 +414,16 @@ export async function handleDcoVisual(env: Env, msg: DcoVisualMessage): Promise<
     assertAllowed(plan.modelId);
     const [asset] = await db.select().from(dcoAssets).where(eq(dcoAssets.runId, run.id));
     if (!asset) throw new Error("base asset missing");
+    if (isWorkersAiModel(plan.modelId)) {
+      const file = await env.FILES.get(asset.r2Key);
+      if (!file) throw new Error("base asset file missing");
+      const submittedAt = Date.now();
+      await db.update(dcoVisuals).set({ submittedAt, updatedAt: submittedAt }).where(and(eq(dcoVisuals.runId, run.id), eq(dcoVisuals.planKey, plan.key)));
+      await recordEvent(db, run.id, "visual", { planKey: plan.key, modelId: plan.modelId, stage: "submitted" }, "system");
+      const image = await editWithWorkersAi(env, plan, { bytes: new Uint8Array(await file.arrayBuffer()), contentType: asset.contentType });
+      await storeVisual(env, run.id, plan, { ...claimed[0], submittedAt }, null, image);
+      return;
+    }
     const link = await mintInputLink(env, msg.origin, asset);
     const sub = await submitToFal(env, plan.modelId, falInput(plan, link));
     const submittedAt = Date.now();
