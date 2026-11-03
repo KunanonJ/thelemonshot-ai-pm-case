@@ -85,7 +85,7 @@ function AllowlistPanel({ data, error }: { data: DcoAllowlist | null; error: str
               <div className="mt-0.5 text-[13px] text-neutral-600">{m.description}</div>
             </div>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-neutral-500 md:justify-end">
-              <Pill tone="blue">{m.role === "layout" ? "Layout" : "Scene"}</Pill>
+              <Pill tone="blue">{m.role === "layout" ? "Layout" : m.role === "scene" ? "Scene" : "Layout and scene"}</Pill>
               <span>Safety flag: {m.providerSafetyField}</span>
               <span>Checked {m.verifiedOn}</span>
               <a href={m.docs} target="_blank" rel="noreferrer" className="text-neutral-700 underline underline-offset-2 hover:text-neutral-900">
@@ -101,7 +101,9 @@ function AllowlistPanel({ data, error }: { data: DcoAllowlist | null; error: str
       {data.audit.ok ? (
         <p className="flex flex-wrap items-center gap-2 text-[13px] text-neutral-800">
           <Pill tone="green">Audit passed</Pill>
-          No person or face synthesis model is reachable from this configuration
+          {data.models.some((m) => m.generalPurpose)
+            ? "No face, person or likeness model is on the list. The general image model only gets the product photo and the fixed prompts in code, which rule out people, faces and hands, and every result needs a person's approval"
+            : "No person or face synthesis model is reachable from this configuration"}
           <span className="text-xs text-neutral-500">({data.audit.checked} models checked)</span>
         </p>
       ) : (

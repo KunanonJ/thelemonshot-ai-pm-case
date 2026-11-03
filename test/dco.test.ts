@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { allowedFigures } from "../src/worker/core/figures";
-import { assertAllowed, allowedModel, auditAllowlist, FAL_ALLOWLIST, type AllowedModel } from "../src/worker/products/dco/allowlist";
+import { assertAllowed, allowedModel, auditAllowlist, IMAGE_ALLOWLIST, type AllowedModel } from "../src/worker/products/dco/allowlist";
 import { briefTexts, dcoBriefSchema } from "../src/worker/products/dco/brief";
 import { buildCopyPrompt, copyJsonSchema, guardCopyOption } from "../src/worker/products/dco/copy";
 import { isFetchableFalUrl, isSameOrigin } from "../src/worker/products/dco/fal";
 import { MAX_ASSET_BYTES, mintToken, safeFileName, sniffAsset, TOKEN_RE } from "../src/worker/products/dco/assets";
 import { copySheetCsv, csvCell, provenanceCsv } from "../src/worker/products/dco/pack";
 import { buildZip, crc32 } from "../src/worker/products/dco/zip";
-import { falInput, isSafetyErrorType, isSafetyFlagged, outputImages, outputSeed, planFor, VISUAL_PLAN } from "../src/worker/products/dco/visuals";
+import { falInput, isSafetyErrorType, isSafetyFlagged, outputImages, outputSeed, planFor, PROMPT_EXCLUSIONS, VISUAL_PLAN, type VisualModelId, type VisualPlan } from "../src/worker/products/dco/visuals";
 import { CLAIM_LEASE_MS, insertStatements, MAX_POLLS, POLL_SECONDS, sendEach, STUCK_MS, USER_FAILURE_TEXTS } from "../src/worker/products/dco/pipeline";
 import { dcoVisuals } from "../src/worker/products/dco/schema";
 import type { Db } from "../src/worker/core/db/client";
@@ -15,6 +15,7 @@ import type { Db } from "../src/worker/core/db/client";
 const fake = (over: Partial<AllowedModel>): AllowedModel => ({
   id: "fal-ai/bria/expand",
   role: "layout",
+  generalPurpose: false,
   description: "Extends the canvas to a new aspect ratio",
   docs: "https://fal.ai/models/fal-ai/bria/expand/api",
   verifiedOn: "2026-11-02",
@@ -25,16 +26,16 @@ const fake = (over: Partial<AllowedModel>): AllowedModel => ({
 // AC-DC-2 and FR-DC-2: the configuration audit
 describe("allowlist audit (AC-DC-2, FR-DC-2)", () => {
   it("the shipped allowlist passes the audit", () => {
-    const audit = auditAllowlist(FAL_ALLOWLIST);
+    const audit = auditAllowlist(IMAGE_ALLOWLIST);
     expect(audit.ok).toBe(true);
-    expect(audit.checked).toBe(FAL_ALLOWLIST.length);
+    expect(audit.checked).toBe(IMAGE_ALLOWLIST.length);
     expect(audit.violations).toEqual([]);
   });
 
   it("every allowlisted model is a layout or scene model with a documentation link", () => {
-    for (const m of FAL_ALLOWLIST) {
-      expect(["layout", "scene"]).toContain(m.role);
-      expect(m.docs.startsWith("https://fal.ai/")).toBe(true);
+    for (const m of IMAGE_ALLOWLIST) {
+      expect(["layout", "scene", "layout and scene"]).toContain(m.role);
+      expect(m.docs).toMatch(/^https:\/\/(fal\.ai|developers\.cloudflare\.com)\//);
     }
   });
 
@@ -64,11 +65,21 @@ describe("allowlist audit (AC-DC-2, FR-DC-2)", () => {
   it("every visual slot uses an allowlisted model, and the plan refuses anything else", () => {
     for (const plan of VISUAL_PLAN) expect(allowedModel(plan.modelId)).not.toBeNull();
     expect(() => assertAllowed("fal-ai/face-swap/v2")).toThrow(/not on the DCO allowlist/);
-    expect(() => assertAllowed("fal-ai/bria/expand")).not.toThrow();
+    expect(() => assertAllowed("@cf/black-forest-labs/flux-2-klein-4b")).not.toThrow();
+    // The fal.ai Bria models stay in the code for later but are off the list, so nothing can send to them
+    expect(() => assertAllowed("fal-ai/bria/expand")).toThrow(/not on the DCO allowlist/);
   });
 
-  it("visual prompts name no person, creator or face", () => {
-    for (const plan of VISUAL_PLAN) expect(plan.prompt).not.toMatch(/person|people|face|portrait|avatar|headshot|creator|model/i);
+  it("visual prompts name no person, creator or face, outside the closing exclusion sentence", () => {
+    for (const plan of VISUAL_PLAN) {
+      expect(plan.prompt.endsWith(PROMPT_EXCLUSIONS)).toBe(true);
+      expect(plan.prompt.replace(PROMPT_EXCLUSIONS, "")).not.toMatch(/person|people|face|portrait|avatar|headshot|creator|model/i);
+    }
+  });
+
+  it("a general-purpose model is only ever given prompts that rule out people", () => {
+    const general = new Set(IMAGE_ALLOWLIST.filter((m) => m.generalPurpose).map((m) => m.id));
+    for (const plan of VISUAL_PLAN.filter((p) => general.has(p.modelId))) expect(plan.prompt).toContain("No people, no faces, no hands");
   });
 });
 
@@ -83,31 +94,35 @@ describe("visual plan and provider requests (FR-DC-2, AC-DC-1)", () => {
   });
 
   it("layout canvases match their aspect ratio", () => {
-    for (const plan of VISUAL_PLAN.filter((p) => p.modelId === "fal-ai/bria/expand")) {
+    for (const plan of VISUAL_PLAN.filter((p) => p.kind === "format")) {
       const [w, h] = plan.canvas!;
       const [a, b] = plan.format.split(":").map(Number) as [number, number];
       expect(w / h).toBeCloseTo(a / b, 6);
     }
   });
 
+  // The fal.ai request shapes are kept for when that account is funded again, so they are tested on fal plans
+  const falPlan = (key: string, modelId: VisualModelId, over: Partial<VisualPlan> = {}): VisualPlan => ({ ...planFor(key)!, modelId, ...over });
+
   it("expand requests carry only the documented layout fields", () => {
-    const body = falInput(planFor("format-4x5")!, "https://example.test/input/x");
+    const body = falInput(falPlan("format-4x5", "fal-ai/bria/expand", { canvas: [1080, 1350] }), "https://example.test/input/x");
     expect(Object.keys(body).sort()).toEqual(["aspect_ratio", "canvas_size", "image_url", "prompt"]);
     expect(body.aspect_ratio).toBe("4:5");
     expect(body.canvas_size).toEqual([1080, 1350]);
   });
 
   it("background replace and product shot requests use their own documented fields", () => {
-    const replace = falInput(planFor("scene-studio")!, "https://example.test/input/x");
+    const replace = falInput(falPlan("scene-studio", "fal-ai/bria/background/replace", { negativePrompt: "people faces hands text logo" }), "https://example.test/input/x");
     expect(replace.num_images).toBe(1);
     expect(replace.negative_prompt).toBe("people faces hands text logo");
-    const shot = falInput(planFor("scene-kitchen")!, "https://example.test/input/x");
+    const shot = falInput(falPlan("scene-kitchen", "fal-ai/bria/product-shot"), "https://example.test/input/x");
     expect(shot.scene_description).toBe(planFor("scene-kitchen")!.prompt);
     expect(shot.num_results).toBe(1);
   });
 
   it("no request body carries a face, person or identity field", () => {
-    for (const plan of VISUAL_PLAN) {
+    const falModels: VisualModelId[] = ["fal-ai/bria/expand", "fal-ai/bria/background/replace", "fal-ai/bria/product-shot"];
+    for (const plan of VISUAL_PLAN.flatMap((p) => falModels.map((m) => ({ ...p, modelId: m, canvas: p.canvas ?? [1024, 1024] })))) {
       for (const key of Object.keys(falInput(plan, "https://example.test/input/x"))) {
         expect(key).not.toMatch(/face|person|identity|swap|avatar|portrait|likeness/);
       }
