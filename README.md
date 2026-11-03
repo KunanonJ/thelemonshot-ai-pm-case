@@ -38,7 +38,9 @@ Checks: `pnpm test` (unit), `pnpm exec tsc -p tsconfig.worker.json --noEmit` and
 
 ## Deploy
 
-`pnpm db:migrate:remote`, then `pnpm run deploy` (plain `pnpm deploy` is pnpm's own command). Keys go in with `wrangler secret put <NAME>`, using the names in `.dev.vars.example`. None of them is ever in the repo.
+Merging to `main` deploys automatically: [`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml) runs the tests, both typechecks and the build on every pull request, and on `main` it then applies new D1 migrations, deploys, tags the version with the commit and checks `/health`. It needs a Cloudflare API token in the `production` environment's `CLOUDFLARE_API_TOKEN` secret ("Edit Cloudflare Workers" template plus D1 Edit and Queues Edit, scoped to the GoGoCash account and the `kunanonj.com` zone). **Run workflow** on `main` redeploys without a new commit.
+
+By hand: `pnpm db:migrate:remote`, then `pnpm run deploy` (plain `pnpm deploy` is pnpm's own command). Keys go in with `wrangler secret put <NAME>`, using the names in `.dev.vars.example`. None of them is ever in the repo.
 
 ## Docs
 
