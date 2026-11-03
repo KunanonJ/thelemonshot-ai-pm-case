@@ -1,0 +1,1 @@
+ALTER TABLE `apify_runs` ADD `cost_usd` real;
