@@ -175,6 +175,8 @@ Checks on the merged code: 196 unit tests. End-to-end, every earlier script stil
 44. **Role cache:** fresh for 60 seconds, kept 7 days as a fallback. During a Clerk outage a role revoked in Clerk keeps working until Clerk answers again.
 45. **Migration 0007** adds `enrichment_jobs.failure_scope`, one digest per refresh and one running refresh per campaign. Its cleanup statements are hand-added before each unique index, so existing duplicates can't make it fail.
 
+46. **Default model: GLM-5.3-Flash on Workers AI (3 Nov 2026).** The OpenCode account had no credit, and OpenCode's free models only work inside the OpenCode app, not from a server. Workers AI gives 10,000 Neurons a day free on every Workers plan, about 50 ten-creator shortlists, and GLM-5.3-Flash takes the strict JSON schema. `core/llm.ts` sends `@cf/...` models through the `AI` binding and anything else to OpenCode, so an admin can switch back with `llm:model`. The Phase 0 check `opencode` became `llm` and tests whichever model is active.
+
 ## Needed from Fronk
 
 - Phase 0: the secrets above via `wrangler secret put`, a Clerk application (a development instance is enough for Phase 0) and its publishable key, and one sign-in on the deployed shell.

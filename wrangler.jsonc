@@ -31,6 +31,10 @@
 	"observability": {
 		"enabled": true
 	},
+	// Workers AI runs the default model (core/llm.ts); 10,000 Neurons a day are free on every plan
+	"ai": {
+		"binding": "AI"
+	},
 	// Every 5 minutes during Phase 0 so the checks run as soon as secrets land; Phase 1 sets the real schedules
 	"triggers": {
 		"crons": [

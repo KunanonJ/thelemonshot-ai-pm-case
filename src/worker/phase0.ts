@@ -4,6 +4,7 @@ import { createClerkClient } from "@clerk/backend";
 import { z } from "zod";
 import { requireRole, type AppEnv } from "./core/auth";
 import { errorMessage, readSecret, type SecretName } from "./core/env";
+import { activeModel, isWorkersAiModel, modelConfigured, sendChat } from "./core/llm";
 
 // Phase 0 diagnostics from the build brief. Every check stores pass/fail with non-secret detail only.
 // The cron runs each check as soon as its secrets exist, so Phase 0 completes without anyone at a desk;
@@ -17,9 +18,6 @@ export type Phase0Message =
   | { kind: "phase0-echo"; probe: string }
   | { kind: "phase0-apify-poll"; platform: ApifyPlatform; runId: string; startedAt: number };
 
-// OpenCode Console's OpenAI-compatible endpoint; it translates for non-OpenAI models such as Claude
-const OPENCODE_CHAT_URL = "https://opencode.ai/inference/openai/v1/chat/completions";
-const OPENCODE_MODEL = "claude-sonnet-5-5";
 const APIFY_API = "https://api.apify.com/v2";
 // Maintained, high-success profile actors (Apify Store, 2 Nov 2026), probed with the platforms' own public accounts
 const APIFY_ACTORS: Record<ApifyPlatform, { actor: string; input: Record<string, unknown> }> = {
@@ -94,11 +92,12 @@ async function checkClerkKey(env: Env): Promise<CheckResult> {
   }
 }
 
-const OpenCodeAnswer = z.object({ ok: z.literal(true), sum: z.number() });
+const ModelAnswer = z.object({ ok: z.literal(true), sum: z.number() });
 
-async function checkOpenCode(env: Env): Promise<CheckResult> {
-  const apiKey = readSecret(env, "OPENCODE_API_KEY");
-  if (!apiKey) return waiting("opencode", ["OPENCODE_API_KEY"]);
+// The model the products use (Workers AI by default, or the admin's llm:model), through the same sendChat
+async function checkModel(env: Env): Promise<CheckResult> {
+  const model = await activeModel(env);
+  if (!modelConfigured(env, model)) return isWorkersAiModel(model) ? finished("llm", false, { model, error: "The AI binding is missing" }, Date.now()) : waiting("llm", ["OPENCODE_API_KEY"]);
   const started = Date.now();
   const messages = [
     { role: "system", content: "Reply with one JSON object only: no prose, no code fences." },
@@ -118,26 +117,20 @@ async function checkOpenCode(env: Env): Promise<CheckResult> {
     },
   };
   try {
-    // Prefer schema-enforced output; if the gateway rejects response_format, fall back to prompt-only JSON
+    // Prefer schema-enforced output; if the provider rejects response_format, fall back to prompt-only JSON
     let mode = "json_schema";
-    let res = await chatCompletion(apiKey, { model: OPENCODE_MODEL, messages, response_format: responseFormat });
-    if (res.status === 400) {
+    let reply = await sendChat(env, { model, messages, max_tokens: 1_000, response_format: responseFormat }, LLM_TIMEOUT_MS);
+    if (!reply.ok && reply.rejected) {
       mode = "prompt_only";
-      res = await chatCompletion(apiKey, { model: OPENCODE_MODEL, messages });
+      reply = await sendChat(env, { model, messages, max_tokens: 1_000 }, LLM_TIMEOUT_MS);
     }
-    if (!res.ok) {
-      return finished("opencode", false, { model: OPENCODE_MODEL, mode, httpStatus: res.status, error: await errorText(res) }, started);
-    }
-    const body = (await res.json()) as {
-      model?: string;
-      choices?: { message?: { content?: string } }[];
-      usage?: Record<string, unknown>;
-    };
-    const parsed = OpenCodeAnswer.safeParse(parseJsonObject(body.choices?.[0]?.message?.content ?? ""));
+    if (!reply.ok) return finished("llm", false, { model, mode, error: reply.error.slice(0, 500) }, started);
+    const content = reply.body?.choices?.[0]?.message?.content;
+    const parsed = ModelAnswer.safeParse(parseJsonObject(typeof content === "string" ? content : ""));
     const pass = parsed.success && parsed.data.sum === 5;
-    return finished("opencode", pass, { model: body.model ?? OPENCODE_MODEL, mode, schemaValid: parsed.success, usage: body.usage }, started);
+    return finished("llm", pass, { model, mode, schemaValid: parsed.success, usage: reply.body?.usage }, started);
   } catch (e) {
-    return finished("opencode", false, { model: OPENCODE_MODEL, error: errorMessage(e) }, started);
+    return finished("llm", false, { model, error: errorMessage(e) }, started);
   }
 }
 
@@ -211,7 +204,7 @@ const AUTO_CHECKS: { id: string; run: (env: Env) => Promise<CheckResult> }[] = [
   { id: "bindings", run: checkBindings },
   { id: "pptx", run: checkPptx },
   { id: "clerk-key", run: checkClerkKey },
-  { id: "opencode", run: checkOpenCode },
+  { id: "llm", run: checkModel },
   { id: "apify-instagram", run: (env) => startApifyRun(env, "instagram") },
   { id: "apify-tiktok", run: (env) => startApifyRun(env, "tiktok") },
 ];
@@ -288,14 +281,6 @@ phase0.post("/run/:check", async (c) => {
 
 // ---------- helpers ----------
 
-function chatCompletion(apiKey: string, body: Record<string, unknown>): Promise<Response> {
-  return fetch(OPENCODE_CHAT_URL, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
-  });
-}
 
 function parseJsonObject(text: string): unknown {
   const trimmed = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
