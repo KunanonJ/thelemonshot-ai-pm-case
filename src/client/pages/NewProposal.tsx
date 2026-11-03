@@ -156,7 +156,7 @@ export function NewProposal({ role }: { role: Role }) {
 
         <section className="space-y-4">
           <h2 className="text-base font-semibold">Brief</h2>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Brand">
               <Input value={brand} onChange={(e) => setBrand(e.target.value)} placeholder="e.g. a snack brand" />
             </Field>
@@ -182,7 +182,7 @@ export function NewProposal({ role }: { role: Role }) {
           <Field label="Target audience">
             <Textarea rows={3} value={audience} onChange={(e) => setAudience(e.target.value)} placeholder="e.g. Bangkok office workers, 22 to 35, who snack between meetings" />
           </Field>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Budget band">
               <Select value={budgetBand} onChange={(e) => setBudgetBand(e.target.value)}>
                 {BUDGETS.map((b) => (

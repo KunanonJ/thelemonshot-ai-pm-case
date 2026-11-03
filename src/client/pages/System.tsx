@@ -118,7 +118,7 @@ export function System({ role }: { role: Role }) {
   return (
     <Shell role={role} title={<Crumbs items={[{ label: "System" }]} />} actions={<Button onClick={() => void overview.reload()}>Refresh</Button>}>
       <div className="space-y-6">
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <StatCard label="Apify data" value={fmtAgo(o?.freshness.find((f) => f.source === "apify")?.last)} hint="Last successful snapshot" />
           <StatCard label="YouTube data" value={fmtAgo(o?.freshness.find((f) => f.source === "youtube_api")?.last)} hint="Last successful snapshot" />
           <StatCard label="LLM calls, 7 days" value={llmCalls} hint={`$${llmCost.toFixed(2)} at list prices (Workers AI is free within 10,000 Neurons a day)`} />

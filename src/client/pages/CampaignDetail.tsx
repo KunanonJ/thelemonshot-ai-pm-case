@@ -121,7 +121,7 @@ export function CampaignDetail({ role, id, userId }: { role: Role; id: string; u
           )}
           {error && <Banner tone="red" title={error} />}
 
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <StatCard label="Posts tracked" value={d.posts.length} hint={d.unavailable.length ? `${d.unavailable.length} unavailable` : "All available"} />
             <StatCard label="Views" value={fmtCompact(totalViews)} hint="Latest, across tracked posts" />
             <StatCard label="Median engagement" value={fmtPct(d.campaignMedianEr)} hint="Across tracked posts" />
@@ -143,8 +143,8 @@ export function CampaignDetail({ role, id, userId }: { role: Role; id: string; u
                 <ul className="divide-y divide-neutral-100 rounded-lg border border-neutral-200">
                   {c.digests.map((g) => (
                     <li key={g.runId} className="flex items-center justify-between gap-3 px-3 py-2 text-[13px]">
-                      <div className="min-w-0">
-                        <span className="text-neutral-500">{fmtDateTime(g.createdAt)}</span> · <span className="truncate">{g.verdict?.text ?? "No verdict"}</span>
+                      <div className="min-w-0 flex-1 truncate">
+                        <span className="text-neutral-500">{fmtDateTime(g.createdAt)}</span> · <span>{g.verdict?.text ?? "No verdict"}</span>
                       </div>
                       <div className="flex shrink-0 items-center gap-2">
                         {g.flags.includes("narrative_unavailable") && <Pill tone="amber">Narrative unavailable</Pill>}

@@ -100,7 +100,7 @@ export function RmnCampaignDetail({ role, id }: { role: Role; id: string }) {
           </Banner>
         )}
 
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <StatCard label="Human clicks" value={h.humanClicks} hint={`${h.botClicks} bot clicks kept in the raw log, not counted`} />
           <StatCard label="Attributed orders" value={h.attributedOrders} hint="Simulated checkouts with a click inside the window" />
           <StatCard label="Conversion rate" value={fmtRate(h.conversionRate)} hint="Attributed orders per human click" />
@@ -136,14 +136,14 @@ export function RmnCampaignDetail({ role, id }: { role: Role; id: string }) {
               ))}
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {(["last_click", "time_decay"] as const).map((m) => (
               <Card key={m} className={cx("px-4 py-3", model === m ? "border-neutral-900" : "")}>
                 <div className="flex items-center justify-between">
                   <div className="text-xs text-neutral-500">{MODEL_LABELS[m]}</div>
                   {model === m && <Pill tone="neutral">Shown below</Pill>}
                 </div>
-                <div className="mt-1 grid grid-cols-2 gap-3">
+                <div className="mt-1 grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div>
                     <div className="text-2xl font-semibold tracking-tight tabular-nums">{fmtConv(d.models[m].conversions)}</div>
                     <div className="text-xs text-neutral-500">conversions</div>

@@ -84,7 +84,7 @@ export function NewRmnCampaign({ role }: { role: Role }) {
           <Banner tone="neutral" title="Simulated commerce">
             The tracking and attribution engine is real. The storefront and its sales are simulated.
           </Banner>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Name">
               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Seaweed chips test" />
             </Field>
