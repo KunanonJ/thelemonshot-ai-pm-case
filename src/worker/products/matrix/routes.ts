@@ -2,6 +2,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { requireRole, type AppEnv } from "../../core/auth";
+import { paidAction } from "../../core/limits";
 import { getDb } from "../../core/db/client";
 import { briefs, creators, runItems, runLogs, runs } from "../../core/db/schema";
 import { newId } from "../../core/util";
@@ -37,7 +38,7 @@ matrixRoutes.post("/validate", async (c) => {
   return c.json({ ok: true, conflicts: findConflicts(parsed.data) });
 });
 
-matrixRoutes.post("/runs", requireRole("admin", "member"), async (c) => {
+matrixRoutes.post("/runs", requireRole("admin", "member"), paidAction, async (c) => {
   const parsed = matrixBriefSchema.safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) return c.json({ error: "invalid_brief", issues: parsed.error.issues.map((i) => ({ path: i.path.join("."), message: i.message })) }, 400);
   return c.json(await createMatrixRun(c.env, parsed.data, c.get("userId")), 201);

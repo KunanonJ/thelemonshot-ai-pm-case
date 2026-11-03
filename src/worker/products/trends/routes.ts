@@ -2,6 +2,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { requireRole, type AppEnv } from "../../core/auth";
+import { paidAction } from "../../core/limits";
 import { getDb, isUniqueViolation } from "../../core/db/client";
 import { apifyRuns, runLogs, runs } from "../../core/db/schema";
 import { newId } from "../../core/util";
@@ -91,7 +92,7 @@ trendRoutes.delete("/watchlist/:id", requireRole("admin", "member"), async (c) =
 const pullSchema = z.object({ termIds: z.array(z.string().min(1)).max(MAX_TERMS_PER_PULL).optional() });
 
 // FR-TM-1: a pull over the active terms, or over the chosen ones. Returns at once; the brief lands in the run list.
-trendRoutes.post("/pulls", requireRole("admin", "member"), async (c) => {
+trendRoutes.post("/pulls", requireRole("admin", "member"), paidAction, async (c) => {
   const body = pullSchema.safeParse(await c.req.json().catch(() => ({})));
   if (!body.success) return c.json({ error: "invalid_request" }, 400);
   try {

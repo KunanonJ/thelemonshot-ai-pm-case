@@ -243,7 +243,10 @@ export function System({ role }: { role: Role }) {
             </div>
             {w.over && (
               <div className="mt-3">
-                <Banner title="Over the weekly threshold">Nothing has been stopped. Check what ran this week below and on the product pages.</Banner>
+                <Banner title="Over the weekly threshold">
+                  Members can't start new paid runs until the week's cost drops below the threshold or you raise it; admins aren't limited. Check what ran this week below
+                  and on the product pages.
+                </Banner>
               </div>
             )}
             <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-neutral-600 tabular-nums">

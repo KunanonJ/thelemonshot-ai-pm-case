@@ -1,5 +1,5 @@
-import type { ReactNode } from "react";
-import { useResource } from "../lib/api";
+import { useEffect, useState, type ReactNode } from "react";
+import { LIMIT_EVENT, useResource, type LimitCode } from "../lib/api";
 import { UserMenu } from "../lib/auth";
 import { fmtDateTime } from "../lib/format";
 import { Link, useRouter } from "../lib/router";
@@ -9,6 +9,13 @@ type NavItem = { label: string; to?: string; soon?: string; adminOnly?: boolean 
 type Degraded = { source: "apify" | "youtube_api"; since: number; reason: string };
 
 const SOURCE_LABELS: Record<Degraded["source"], string> = { apify: "Instagram and TikTok", youtube_api: "YouTube" };
+
+const LIMIT_TEXT: Record<LimitCode, string> = {
+  daily_limit_reached:
+    "You've used today's allowance of new runs on this demo. It resets at midnight UTC (07:00 in Bangkok). Everything you've made can still be opened and reviewed.",
+  weekly_budget_reached:
+    "This demo has reached its spending limit for the week, so new runs are paused. Everything already made can still be opened and reviewed.",
+};
 
 // Products in PRD build order; later ones show their phase until they ship
 const NAV: { section: string; items: NavItem[] }[] = [
@@ -29,10 +36,16 @@ const NAV: { section: string; items: NavItem[] }[] = [
 
 export function Shell({ role, title, actions, children }: { role: string; title: ReactNode; actions?: ReactNode; children: ReactNode }) {
   const { path } = useRouter();
-  // NFR-5: admins see the weekly cost alert on every page; it never blocks anything
+  // NFR-5: admins see the weekly cost alert on every page; it pauses members' new paid runs, never an admin's
   const cost = useResource<{ over: boolean; totalThb: number; thresholdThb: number }>(role === "admin" ? "/api/admin/cost-alert" : null);
   // Finding 18: a source failing for everyone is said once, on every page, not left to show as stale rows
   const status = useResource<{ degraded: Degraded[] }>("/api/status");
+  const [limit, setLimit] = useState<LimitCode | null>(null);
+  useEffect(() => {
+    const onLimit = (e: Event) => setLimit((e as CustomEvent<LimitCode>).detail);
+    window.addEventListener(LIMIT_EVENT, onLimit);
+    return () => window.removeEventListener(LIMIT_EVENT, onLimit);
+  }, []);
   return (
     <div className="min-h-screen bg-white text-neutral-900">
       <aside className="fixed inset-y-0 left-0 flex w-56 flex-col border-r border-neutral-200 bg-neutral-50/70">
@@ -89,12 +102,13 @@ export function Shell({ role, title, actions, children }: { role: string; title:
         ))}
         {cost.data?.over && (
           <div className="border-b border-amber-200 bg-amber-50/70 px-6 py-2 text-[13px] text-amber-900">
-            External costs this week are ฿{cost.data.totalThb.toLocaleString("en")}, over the ฿{cost.data.thresholdThb.toLocaleString("en")} threshold. Nothing has been stopped.{" "}
+            External costs this week are ฿{cost.data.totalThb.toLocaleString("en")}, over the ฿{cost.data.thresholdThb.toLocaleString("en")} threshold. Members' new paid runs are paused; yours aren't.{" "}
             <Link to="/system" className="underline">
               See System
             </Link>
           </div>
         )}
+        {limit && <div className="border-b border-amber-200 bg-amber-50/70 px-6 py-2 text-[13px] text-amber-900">{LIMIT_TEXT[limit]}</div>}
         <div className="mx-auto max-w-[1240px] px-6 py-6">{children}</div>
       </main>
     </div>

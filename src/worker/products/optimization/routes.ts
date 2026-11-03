@@ -2,6 +2,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import { z } from "zod";
 import { requireRole, type AppEnv } from "../../core/auth";
+import { paidAction } from "../../core/limits";
 import { getDb, insertChunked } from "../../core/db/client";
 import { briefs, campaignActions, campaignDigests, campaignPosts, campaignRefreshes, campaigns, contentItems, creators, runLogs, runs } from "../../core/db/schema";
 import { requestEnrichment } from "../../core/enrichment/service";
@@ -43,7 +44,7 @@ campaignRoutes.get("/", async (c) => {
 });
 
 // FR-CO-1: registration resolves every post to a creator, or creates a stub creator flagged for enrichment
-campaignRoutes.post("/", requireRole("admin", "member"), async (c) => {
+campaignRoutes.post("/", requireRole("admin", "member"), paidAction, async (c) => {
   const parsed = campaignSchema.safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) return c.json({ error: "invalid_campaign", issues: parsed.error.issues.map((i) => ({ path: i.path.join("."), message: i.message })) }, 400);
   const db = getDb(c.env);
@@ -136,7 +137,7 @@ campaignRoutes.get("/:id", async (c) => {
   });
 });
 
-campaignRoutes.post("/:id/refresh", requireRole("admin", "member"), async (c) => {
+campaignRoutes.post("/:id/refresh", requireRole("admin", "member"), paidAction, async (c) => {
   const db = getDb(c.env);
   const id = c.req.param("id");
   const [campaign] = await db.select().from(campaigns).where(eq(campaigns.id, id));

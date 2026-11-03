@@ -28,13 +28,23 @@ export function useApi(): Api {
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new ApiError(res.status, body.error ?? `http_${res.status}`, body);
+        const code = body.error ?? `http_${res.status}`;
+        // Forms keep their own short error; the Shell explains a spending limit once, on every page
+        if (res.status === 429 && (LIMIT_CODES as readonly string[]).includes(code)) {
+          window.dispatchEvent(new CustomEvent<LimitCode>(LIMIT_EVENT, { detail: code as LimitCode }));
+        }
+        throw new ApiError(res.status, code, body);
       }
       return (res.headers.get("content-type")?.includes("application/json") ? await res.json() : await res.text()) as T;
     },
     [getToken],
   );
 }
+
+// Mirrors src/worker/core/limits.ts: a non-admin's paid run refused for the day or for the week
+export const LIMIT_CODES = ["daily_limit_reached", "weekly_budget_reached"] as const;
+export type LimitCode = (typeof LIMIT_CODES)[number];
+export const LIMIT_EVENT = "lemon:limit";
 
 // Loads a resource and keeps it fresh; `poll` returns a delay in ms while the data is still changing
 export function useResource<T>(path: string | null, poll?: (data: T) => number | null) {
