@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Crumbs, Shell } from "../components/Shell";
-import { Banner, Button, Card, Pill, Spinner, StatusPill, Td, Th } from "../components/ui";
+import { Banner, Button, Card, Pill, SampleDataPill, Spinner, StatusPill, Td, Th } from "../components/ui";
 import { ApiError, useApi, useResource } from "../lib/api";
 import { fmtAgo, fmtDateTime, PLATFORM_LABELS } from "../lib/format";
 import { Link } from "../lib/router";
@@ -71,16 +71,19 @@ export function TrendDetail({ role, id }: { role: Role; id: string }) {
       role={role}
       title={crumbs}
       actions={
-        canReview && (
-          <>
-            <Button variant="danger" disabled={busy} onClick={() => void review("reject")}>
-              Reject
-            </Button>
-            <Button variant="primary" disabled={busy} onClick={() => void review("approve")}>
-              Approve brief
-            </Button>
-          </>
-        )
+        <>
+          {d.flags?.sampleData === true && <SampleDataPill />}
+          {canReview && (
+            <>
+              <Button variant="danger" disabled={busy} onClick={() => void review("reject")}>
+                Reject
+              </Button>
+              <Button variant="primary" disabled={busy} onClick={() => void review("approve")}>
+                Approve brief
+              </Button>
+            </>
+          )}
+        </>
       }
     >
       <div className="mb-4 flex flex-wrap items-center gap-2">

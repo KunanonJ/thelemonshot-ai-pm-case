@@ -99,7 +99,7 @@ export const contentMetrics = sqliteTable(
     likes: integer("likes"),
     comments: integer("comments"),
     shares: integer("shares"),
-    source: text("source", { enum: ["apify", "youtube_api"] }).notNull(),
+    source: text("source", { enum: ["apify", "youtube_api", "sample"] }).notNull(),
     fetchedAt: integer("fetched_at").notNull(),
   },
   (t) => [index("content_metrics_idx").on(t.contentId, t.fetchedAt)],
