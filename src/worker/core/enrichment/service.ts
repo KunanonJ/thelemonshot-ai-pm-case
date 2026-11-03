@@ -406,9 +406,11 @@ export async function sweepStale(env: Env): Promise<void> {
   try {
     if (!readSecret(env, "APIFY_TOKEN") && !readSecret(env, "YOUTUBE_API_KEY")) return;
     const now = Date.now();
+    // Seeded demo creators (seed/demo-creators.sql) are fictional, so there's nothing on any platform to fetch
     const { results } = await env.DB.prepare(
       `SELECT c.id FROM creators c
        WHERE c.active = 1
+         AND c.source != 'seed'
          AND NOT EXISTS (SELECT 1 FROM enrichment_jobs j WHERE j.creator_id = c.id AND j.status = 'pending' AND j.created_at > ?1)
          AND NOT EXISTS (SELECT 1 FROM enrichment_jobs j WHERE j.creator_id = c.id AND j.status = 'failed' AND j.created_at > ?2
                            AND COALESCE(j.failure_scope, 'handle') = 'handle')
