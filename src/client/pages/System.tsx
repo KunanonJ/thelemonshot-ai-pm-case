@@ -54,7 +54,7 @@ const PHASE0 = [
   { id: "clerk-key", label: "Clerk secret key works", auto: true },
   { id: "bindings", label: "D1, KV, R2 and Queue round-trip", auto: true },
   { id: "pptx", label: "pptxgenjs builds a deck in the Worker", auto: true },
-  { id: "opencode", label: "OpenCode returns strict JSON", auto: true },
+  { id: "llm", label: "The AI model returns strict JSON", auto: true },
   { id: "apify-instagram", label: "Apify Instagram profile run", auto: true },
   { id: "apify-tiktok", label: "Apify TikTok profile run", auto: true },
 ];
@@ -121,7 +121,7 @@ export function System({ role }: { role: Role }) {
         <div className="grid grid-cols-4 gap-3">
           <StatCard label="Apify data" value={fmtAgo(o?.freshness.find((f) => f.source === "apify")?.last)} hint="Last successful snapshot" />
           <StatCard label="YouTube data" value={fmtAgo(o?.freshness.find((f) => f.source === "youtube_api")?.last)} hint="Last successful snapshot" />
-          <StatCard label="LLM calls, 7 days" value={llmCalls} hint={`$${llmCost.toFixed(2)} at OpenCode prices`} />
+          <StatCard label="LLM calls, 7 days" value={llmCalls} hint={`$${llmCost.toFixed(2)} at list prices (Workers AI is free within 10,000 Neurons a day)`} />
           <StatCard label="Open dead letters" value={o?.openDeadLetters ?? 0} hint="Listed on the Creators page" />
         </div>
 
@@ -296,7 +296,7 @@ export function System({ role }: { role: Role }) {
           <div>
             <div className="font-semibold">Force LLM failure</div>
             <div className="text-neutral-500">
-              Test switch for AC-MX-3: every model call fails as if OpenCode were down, and runs fall back to data scores. Model: {flags.data?.llmModel ?? "…"}
+              Test switch for AC-MX-3: every model call fails as if the model provider were down, and runs fall back to data scores. Model: {flags.data?.llmModel ?? "…"}
             </div>
           </div>
           <Button variant={flags.data?.llmForceFail ? "danger" : "secondary"} onClick={() => void toggleForceFail()}>

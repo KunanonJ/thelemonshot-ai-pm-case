@@ -5,14 +5,32 @@ import { errorMessage, localOverride, readSecret } from "./env";
 import { fetchWithRetry, isTimeout } from "./http";
 import { newId } from "./util";
 
-// FR-CORE-14: the only module that talks to a model. OpenCode Console's OpenAI-compatible endpoint
-// translates for non-OpenAI models, so Claude is reachable through it.
+// FR-CORE-14: the only module that talks to a model. Two providers, picked by the model ID:
+// - "@cf/..." runs on Cloudflare Workers AI through the AI binding: 10,000 Neurons a day are free on every
+//   Workers plan, which covers the MVP. GLM-5.3-Flash takes the strict JSON schema and answers in Thai and English.
+// - anything else goes to OpenCode Console's OpenAI-compatible endpoint, which needs a funded account (its
+//   free models only work inside the OpenCode app). An admin can switch with the llm:model setting.
 const CHAT_URL = "https://opencode.ai/inference/openai/v1/chat/completions";
-export const DEFAULT_MODEL = "claude-sonnet-5-5";
-// USD per million tokens, from OpenCode Console's pricing table (2 Nov 2026)
+export const DEFAULT_MODEL = "@cf/zai-org/glm-5.3-flash";
+// USD per million tokens: OpenCode Console's pricing table (2 Nov 2026) and Workers AI's list price beyond the
+// free daily Neurons (3 Nov 2026). Inside the free allowance Workers AI costs nothing, so the weekly total overstates.
 const PRICES: Record<string, { input: number; output: number }> = {
   "claude-sonnet-5-5": { input: 2, output: 10 },
+  "glm-5.3-flash": { input: 0.15, output: 0.5 },
+  "@cf/zai-org/glm-5.3-flash": { input: 0.15, output: 0.5 },
 };
+
+export const isWorkersAiModel = (model: string): boolean => model.startsWith("@cf/");
+
+// Workers AI needs only the binding; OpenCode needs its key
+export function modelConfigured(env: Env, model: string): boolean {
+  return isWorkersAiModel(model) ? Boolean(env.AI) : Boolean(readSecret(env, "OPENCODE_API_KEY"));
+}
+
+// The admin's llm:model setting, else the default. A KV read that fails means the default.
+export async function activeModel(env: Env): Promise<string> {
+  return (await env.CONFIG.get("llm:model").catch(() => null)) ?? DEFAULT_MODEL;
+}
 export const FORCE_FAIL_FLAG = "test:llm-force-fail";
 
 export type LlmFailure =
@@ -62,10 +80,10 @@ type Fail<T> = (reason: LlmFailure, error?: string, usage?: Usage) => Promise<Ll
 
 async function requestJson<T>(env: Env, req: JsonCallRequest<T>, call: CallState, fail: Fail<T>): Promise<LlmResult<T>> {
   // A KV read that fails means the default model and no test switch, not a failed call
-  call.model = (await env.CONFIG.get("llm:model").catch(() => null)) ?? DEFAULT_MODEL;
+  call.model = await activeModel(env);
   if ((await env.CONFIG.get(FORCE_FAIL_FLAG).catch(() => null)) === "1") return fail("forced_failure");
-  const apiKey = readSecret(env, "OPENCODE_API_KEY");
-  if (!apiKey) return fail("not_configured");
+  if (!modelConfigured(env, call.model)) return fail("not_configured");
+  const timeoutMs = req.timeoutMs ?? 120_000;
 
   const base = {
     model: call.model,
@@ -89,27 +107,19 @@ async function requestJson<T>(env: Env, req: JsonCallRequest<T>, call: CallState
     { mode: "prompt_only", body: base },
   ];
 
-  let res: Response | undefined;
+  let reply: Reply | undefined;
   try {
     for (const attempt of attempts) {
       call.mode = attempt.mode;
-      res = await fetchWithRetry(
-        chatUrl(env),
-        {
-          method: "POST",
-          headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-          body: JSON.stringify(attempt.body),
-        },
-        { timeoutMs: req.timeoutMs ?? 120_000, retries: 1 },
-      );
-      if (res.status !== 400) break;
+      reply = await sendChat(env, { ...attempt.body, model: call.model }, timeoutMs);
+      if (reply.ok || !reply.rejected) break;
     }
   } catch (e) {
     return fail(isTimeout(e) ? "timeout" : "network", errorMessage(e));
   }
-  if (!res || !res.ok) return fail("http_error", `HTTP ${res?.status}: ${(await res?.text().catch(() => "")) ?? ""}`.slice(0, 300));
+  if (!reply?.ok) return fail("http_error", (reply?.error ?? "No attempt was made").slice(0, 300));
 
-  const body = (await res.json().catch(() => null)) as { model?: string; choices?: { message?: { content?: unknown } }[]; usage?: Usage } | null;
+  const body = reply.body;
   if (!body || typeof body !== "object") return fail("invalid_json", "The response body wasn't a JSON object");
   const content = body.choices?.[0]?.message?.content;
   const parsed = typeof content === "string" ? parseJsonObject(content) : null;
@@ -124,6 +134,56 @@ async function requestJson<T>(env: Env, req: JsonCallRequest<T>, call: CallState
 const chatUrl = (env: Env) => localOverride(env, "LLM_CHAT_URL", CHAT_URL);
 
 type Usage = { prompt_tokens?: number; completion_tokens?: number };
+type ChatBody = { model?: string; choices?: { message?: { content?: unknown } }[]; usage?: Usage } | null;
+// "rejected" means the provider refused this request's shape (for example response_format), so the next,
+// plainer attempt is worth making; any other failure ends the call
+export type Reply = { ok: true; body: ChatBody } | { ok: false; rejected: boolean; error: string };
+
+// One chat-completions request to whichever provider serves the model. Throws only on a timeout or a
+// network failure; Phase 0's model check uses it too, so the check exercises the same path as the products.
+export function sendChat(env: Env, body: Record<string, unknown> & { model: string }, timeoutMs: number): Promise<Reply> {
+  if (isWorkersAiModel(body.model)) return sendWorkersAi(env, body, timeoutMs);
+  return sendOpenCode(env, readSecret(env, "OPENCODE_API_KEY") ?? "", body, timeoutMs);
+}
+
+async function sendOpenCode(env: Env, apiKey: string, body: Record<string, unknown>, timeoutMs: number): Promise<Reply> {
+  const res = await fetchWithRetry(
+    chatUrl(env),
+    { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify(body) },
+    { timeoutMs, retries: 1 },
+  );
+  if (!res.ok) return { ok: false, rejected: res.status === 400, error: `HTTP ${res.status}: ${await res.text().catch(() => "")}` };
+  return { ok: true, body: (await res.json().catch(() => null)) as ChatBody };
+}
+
+// Models on the chat-completions schema (GLM-5.3-Flash among them) answer in the OpenAI shape, so the
+// parsing below is shared. The binding has no timeout of its own and reports bad input by throwing.
+type WorkersAiRunner = { run(model: string, input: Record<string, unknown>): Promise<unknown> };
+
+// Per-model extras. GLM-5.3-Flash reasons at "max" by default, which took over 120 s on a 31-creator
+// shortlist; scoring and drafting don't need it, and reasoning can't be switched off, only lowered.
+const WORKERS_AI_OPTIONS: Record<string, Record<string, unknown>> = {
+  "@cf/zai-org/glm-5.3-flash": { reasoning_effort: "low" },
+};
+
+async function sendWorkersAi(env: Env, body: Record<string, unknown>, timeoutMs: number): Promise<Reply> {
+  const { model, ...rest } = body;
+  const input = { ...rest, ...WORKERS_AI_OPTIONS[String(model)] };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(Object.assign(new Error(`Workers AI didn't answer within ${timeoutMs} ms`), { name: "TimeoutError" })), timeoutMs);
+  });
+  try {
+    const out = await Promise.race([(env.AI as unknown as WorkersAiRunner).run(String(model), input), timeout]);
+    return { ok: true, body: out as ChatBody };
+  } catch (e) {
+    if (isTimeout(e)) throw e;
+    // An error that names the input or schema means this request's shape was refused, so a plainer one may work
+    return { ok: false, rejected: "response_format" in input && /input|schema|response_format/i.test(errorMessage(e)), error: `Workers AI: ${errorMessage(e)}` };
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
 
 async function logCall(
   env: Env,
