@@ -1,0 +1,10 @@
+# Copy to .dev.vars for local dev (gitignored). Production uses `wrangler secret put <NAME>` with the same names.
+CLERK_PUBLISHABLE_KEY=
+CLERK_SECRET_KEY=
+OPENCODE_API_KEY=
+APIFY_TOKEN=
+YOUTUBE_API_KEY=
+# Phase 5 (DCO) only
+FAL_API_KEY=
+# Local end-to-end tests only: skips Clerk for requests to localhost; ignored everywhere else
+DEV_AUTH_BYPASS=
