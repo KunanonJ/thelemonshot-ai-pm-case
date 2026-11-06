@@ -8,7 +8,7 @@ export const DEFAULT_POST_CAP = 30; // FR-TM-1
 export const MAX_POST_CAP = 100; // cost control (my call)
 export const MAX_TERMS_PER_PULL = 10; // cost control (my call)
 
-const PLATFORM_NAME: Record<TrendPlatform, string> = { instagram: "Instagram", tiktok: "TikTok" };
+const PLATFORM_NAME: Record<TrendPlatform, string> = { instagram: "Instagram", tiktok: "TikTok", youtube: "YouTube" };
 export const platformName = (p: string): string => PLATFORM_NAME[p as TrendPlatform] ?? p;
 
 // Lower-case key for de-duplication; a hashtag never keeps its leading "#"
@@ -25,7 +25,7 @@ export const termInputSchema = z
   .object({
     term: z.string().trim().min(1, "Enter a hashtag or keyword").max(60),
     kind: z.enum(TREND_TERM_KINDS),
-    platforms: z.array(z.enum(TREND_PLATFORMS)).min(1, "Pick at least one platform").max(2),
+    platforms: z.array(z.enum(TREND_PLATFORMS)).min(1, "Pick at least one platform").max(TREND_PLATFORMS.length),
     category: z.string().trim().min(1, "Give the term a category").max(60),
     postCap: z.number().int().min(1).max(MAX_POST_CAP).default(DEFAULT_POST_CAP),
   })
@@ -39,7 +39,8 @@ export const termInputSchema = z
 // Actor input per term and platform, checked against the Store input schemas (2 Nov 2026):
 //   instagram-hashtag-scraper: hashtags, keywordSearch, resultsType, resultsLimit (per hashtag or keyword)
 //   clockworks/tiktok-scraper: hashtags or searchQueries, resultsPerPage (per hashtag, profile or search input)
-export function actorRequest(platform: TrendPlatform, kind: TrendTermKind, term: string, cap: number): { actor: string; input: Record<string, unknown>; summary: string } {
+// YouTube never reaches this: it is searched directly (trends/youtube.ts)
+export function actorRequest(platform: Exclude<TrendPlatform, "youtube">, kind: TrendTermKind, term: string, cap: number): { actor: string; input: Record<string, unknown>; summary: string } {
   const clean = term.trim().replace(/^#+/, "");
   const summary = `${platform} ${kind} ${displayLabel(kind, term)}, cap ${cap}`;
   if (platform === "instagram") {

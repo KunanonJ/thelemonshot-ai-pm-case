@@ -28,7 +28,7 @@ export function TrendsHome({ role }: { role: Role }) {
   const canEdit = role !== "viewer";
   const [term, setTerm] = useState("");
   const [kind, setKind] = useState<TrendTermKind>("hashtag");
-  const [platforms, setPlatforms] = useState<TrendPlatform[]>(["instagram", "tiktok"]);
+  const [platforms, setPlatforms] = useState<TrendPlatform[]>(["youtube"]);
   const [category, setCategory] = useState("food_snacks");
   const [cap, setCap] = useState("30");
   const [error, setError] = useState<string | null>(null);
@@ -127,13 +127,13 @@ export function TrendsHome({ role }: { role: Role }) {
               <Field label="Category" hint="Brand category the pitch angles map to">
                 <Input value={category} onChange={(e) => setCategory(e.target.value)} />
               </Field>
-              <Field label="Posts per pull" hint="Default 30">
+              <Field label="Posts per pull" hint="Default 30. YouTube returns 50 at most.">
                 <Input type="number" min={1} max={100} value={cap} onChange={(e) => setCap(e.target.value)} />
               </Field>
               <div className="flex flex-col justify-end gap-1.5">
                 <span className="text-[13px] font-medium text-neutral-800">Platforms</span>
                 <div className="flex gap-3 text-[13px] text-neutral-700">
-                  {(["instagram", "tiktok"] as const).map((p) => (
+                  {(["youtube", "instagram", "tiktok"] as const).map((p) => (
                     <label key={p} className="flex items-center gap-1.5">
                       <input type="checkbox" checked={platforms.includes(p)} onChange={() => togglePlatform(p)} />
                       {PLATFORM_LABELS[p]}
@@ -142,6 +142,7 @@ export function TrendsHome({ role }: { role: Role }) {
                 </div>
               </div>
             </div>
+            <div className="mt-2 text-xs text-neutral-500">YouTube searches are live: the most-viewed videos in Thailand from the last 14 days. Instagram and TikTok need a paid data source, so this demo fills them with labelled sample posts.</div>
             <div className="mt-3 flex justify-end">
               <Button
                 variant="primary"
