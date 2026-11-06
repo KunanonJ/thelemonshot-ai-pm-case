@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Crumbs, Shell } from "../components/Shell";
 import { Banner, Button, cx, Field, Input, Select, Textarea } from "../components/ui";
 import { ApiError, useApi, useResource } from "../lib/api";
-import { categoryLabel, PLATFORM_LABELS } from "../lib/format";
+import { categoryLabel, DEFAULT_BRIEF_PLATFORMS, LIVE_PLATFORM_NOTE, PLATFORM_LABELS } from "../lib/format";
 import { useRouter } from "../lib/router";
 import type { Role } from "../types";
 
@@ -36,7 +36,7 @@ export function NewBrief({ role }: { role: Role }) {
   const [brand, setBrand] = useState("");
   const [category, setCategory] = useState("");
   const [objective, setObjective] = useState<string>("awareness");
-  const [platforms, setPlatforms] = useState<string[]>(["instagram", "tiktok"]);
+  const [platforms, setPlatforms] = useState<string[]>(DEFAULT_BRIEF_PLATFORMS);
   const [audience, setAudience] = useState("");
   const [budgetBand, setBudgetBand] = useState("");
   const [include, setInclude] = useState("");
@@ -163,6 +163,7 @@ export function NewBrief({ role }: { role: Role }) {
                 </button>
               ))}
             </div>
+            <div className="mt-1.5 text-xs text-neutral-500">{LIVE_PLATFORM_NOTE}</div>
           </div>
           <Field label="Target audience">
             <Textarea rows={3} value={audience} onChange={(e) => setAudience(e.target.value)} placeholder="e.g. Bangkok students and young professionals, 18 to 30, who snack at work" />
