@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Crumbs, Shell } from "../components/Shell";
 import { Banner, Button, cx, Field, Input, Select, Textarea } from "../components/ui";
 import { ApiError, useApi, useResource } from "../lib/api";
-import { categoryLabel, fmtAgo, OBJECTIVE_LABELS, PLATFORM_LABELS } from "../lib/format";
+import { categoryLabel, DEFAULT_BRIEF_PLATFORMS, fmtAgo, LIVE_PLATFORM_NOTE, OBJECTIVE_LABELS, PLATFORM_LABELS } from "../lib/format";
 import { useRouter } from "../lib/router";
 import type { AttachableShortlist, ProposalTemplates, Role, ShortlistChoice } from "../types";
 
@@ -63,7 +63,7 @@ export function NewProposal({ role }: { role: Role }) {
   const [mode, setMode] = useState<ShortlistChoice["mode"] | null>(null);
   const [matrixRunId, setMatrixRunId] = useState("");
   const [category, setCategory] = useState("");
-  const [platforms, setPlatforms] = useState<string[]>(["instagram", "tiktok"]);
+  const [platforms, setPlatforms] = useState<string[]>(DEFAULT_BRIEF_PLATFORMS);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -260,6 +260,7 @@ export function NewProposal({ role }: { role: Role }) {
                     </button>
                   ))}
                 </div>
+                <div className="mt-1.5 text-xs text-neutral-500">{LIVE_PLATFORM_NOTE}</div>
               </div>
             </div>
           )}

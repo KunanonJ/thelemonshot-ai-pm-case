@@ -14,7 +14,9 @@
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
     "db:seed:demo:local": "wrangler d1 execute DB --local --file seed/demo-creators.sql",
-    "db:seed:demo:remote": "wrangler d1 execute DB --remote --file seed/demo-creators.sql"
+    "db:seed:demo:remote": "wrangler d1 execute DB --remote --file seed/demo-creators.sql",
+    "db:seed:youtube:local": "wrangler d1 execute DB --local --file seed/youtube-creators.sql",
+    "db:seed:youtube:remote": "wrangler d1 execute DB --remote --file seed/youtube-creators.sql"
   },
   "dependencies": {
     "@clerk/backend": "3.26.5",

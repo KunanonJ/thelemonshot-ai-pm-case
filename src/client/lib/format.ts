@@ -32,6 +32,11 @@ export const OBJECTIVE_LABELS: Record<string, string> = { awareness: "Awareness"
 
 export const PLATFORM_LABELS: Record<string, string> = { instagram: "Instagram", tiktok: "TikTok", youtube: "YouTube" };
 
+// Briefs start on YouTube because it is the platform with live stats in this deployment (YouTube Data API, free).
+// Instagram and TikTok stats come from Apify, which is a paid source and is switched off here.
+export const DEFAULT_BRIEF_PLATFORMS = ["youtube"];
+export const LIVE_PLATFORM_NOTE = "Live stats come from YouTube. Instagram and TikTok need a paid data source that is off in this demo.";
+
 export const FLAG_LABELS: Record<string, string> = {
   rationale_unavailable: "Rationale unavailable",
   rationale_unverified: "Rationale unverified",
