@@ -2,7 +2,7 @@
 // Rows store a code. Raw Apify and exception text goes to console.error and to the operator-only apify_runs.error.
 // Same pattern as the proposal section failures: one fixed plain sentence per code.
 
-export const TERM_FAILURE_CODES = ["start_failed", "poll_failed", "run_ended", "poll_timeout", "no_dataset", "pull_timeout", "unexpected"] as const;
+export const TERM_FAILURE_CODES = ["start_failed", "poll_failed", "run_ended", "poll_timeout", "no_dataset", "pull_timeout", "search_failed", "quota_reached", "unexpected"] as const;
 export type TermFailureCode = (typeof TERM_FAILURE_CODES)[number];
 
 const TERM_FAILURE_TEXT: Record<TermFailureCode, string> = {
@@ -12,6 +12,8 @@ const TERM_FAILURE_TEXT: Record<TermFailureCode, string> = {
   poll_timeout: "Apify did not finish this search in time.",
   no_dataset: "Apify finished this search without saving any results.",
   pull_timeout: "This search was still open when the pull ran out of time.",
+  search_failed: "YouTube did not answer this search.",
+  quota_reached: "Today's YouTube search allowance is used up. It resets tomorrow.",
   unexpected: "Something went wrong while this search was collected.",
 };
 

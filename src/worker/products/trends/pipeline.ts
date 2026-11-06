@@ -15,6 +15,7 @@ import type { TrendTheme } from "./model";
 import { parseItems, type ParsedPost } from "./parse";
 import { trendBriefs, trendPullHits, trendPullTerms, trendPosts, trendPulls, trendWatchlist } from "./schema";
 import { actorRequest, displayLabel, MAX_TERMS_PER_PULL, watchTokens } from "./terms";
+import { searchYouTubeTrend, YT_TREND_NOTE } from "./youtube";
 
 // ② Trend Monitoring pipeline: one Apify run per watched term and platform (FR-TM-1), polled from the queue,
 // deduplicated by platform post ID, then one brief per pull (FR-TM-2 to FR-TM-4, BR-TM-1, BR-TM-2).
@@ -74,8 +75,10 @@ export async function startTrendPull(env: Env, requestedBy: string, termIds: str
   const now = Date.now();
   const runId = newId();
   const pullId = newId();
-  // While an admin has sample sources on, each term gets invented posts instead of an Apify run (core/enrichment/sample.ts)
+  // While an admin has sample sources on, each Apify term gets invented posts instead of a run (core/enrichment/sample.ts).
+  // YouTube terms are always live: the YouTube Data API is free, so it never needs a stand-in.
   const sample = await sampleSourcesOn(env);
+  const sampleData = sample && plan.some((p) => p.platform !== "youtube");
   const rows = plan.map(({ term, platform }) => ({
     id: newId(),
     pullId,
@@ -96,7 +99,7 @@ export async function startTrendPull(env: Env, requestedBy: string, termIds: str
       product: "trends",
       status: "running",
       inputHash: hash,
-      flags: { kind: "pull", terms: chosen.map((t) => displayLabel(t.kind, t.term)), platforms: [...new Set(plan.map((p) => p.platform))], ...(sample ? { sampleData: true } : {}) },
+      flags: { kind: "pull", terms: chosen.map((t) => displayLabel(t.kind, t.term)), platforms: [...new Set(plan.map((p) => p.platform))], ...(sampleData ? { sampleData: true } : {}) },
       createdBy: requestedBy,
       createdAt: now,
       startedAt: now,
@@ -127,7 +130,13 @@ export async function startTrendPull(env: Env, requestedBy: string, termIds: str
 
   let started = 0;
   let failedToStart = 0;
+  let apifyStarted = 0;
   for (const row of rows) {
+    if (row.platform === "youtube") {
+      if (await pullYouTubeTerm(env, row)) started++;
+      else failedToStart++;
+      continue;
+    }
     if (sample) {
       const posts = sampleTrendPosts({ term: row.term, category: row.category }, row.platform, row.postCap, Date.now());
       await saveHits(env, row, posts);
@@ -138,7 +147,7 @@ export async function startTrendPull(env: Env, requestedBy: string, termIds: str
       started++;
       continue;
     }
-    const req = actorRequest(row.platform, row.kind, row.term, row.postCap);
+    const req = actorRequest(row.platform as Exclude<typeof row.platform, "youtube">, row.kind, row.term, row.postCap);
     let localRunId: string | null = null;
     try {
       const actorRun = await startActor(env, req.actor, req.input, "trends", req.summary);
@@ -149,14 +158,37 @@ export async function startTrendPull(env: Env, requestedBy: string, termIds: str
         { delaySeconds: FIRST_POLL_S },
       );
       started++;
+      apifyStarted++;
     } catch (e) {
       failedToStart++;
       console.error("trend search did not start", req.summary, errorMessage(e));
       await guarded("trend term could not be marked failed", () => failTerm(env, { id: row.id, pullId, localRunId }, "start_failed", "START_FAILED", errorMessage(e)));
     }
   }
-  if (started === 0 || sample) await settlePull(env, pullId);
+  // Only Apify terms settle later, from their polls; with none running, the pull settles now
+  if (apifyStarted === 0) await settlePull(env, pullId);
   return { runId, pullId, deduped: false, started, failedToStart, terms: rows.length };
+}
+
+// One YouTube term, start to finish. True when its posts were saved; a failure is recorded on the term
+async function pullYouTubeTerm(env: Env, row: Pick<PullTermRow, "id" | "pullId" | "platform" | "kind" | "term" | "postCap">): Promise<boolean> {
+  const ref = { id: row.id, pullId: row.pullId, localRunId: null };
+  try {
+    const res = await searchYouTubeTrend(env, row.kind, row.term, row.postCap);
+    if ("error" in res) {
+      await guarded("trend term could not be marked failed", () => failTerm(env, ref, res.error, "FAILED", res.detail));
+      return false;
+    }
+    await saveHits(env, row, res.posts);
+    await getDb(env)
+      .update(trendPullTerms)
+      .set({ status: "ok", itemCount: res.posts.length, postCount: res.posts.length, usageUsd: 0, note: YT_TREND_NOTE, error: null, finishedAt: Date.now() })
+      .where(and(eq(trendPullTerms.id, row.id), eq(trendPullTerms.status, "running")));
+    return true;
+  } catch (e) {
+    await guarded("trend term could not be marked failed", () => failTerm(env, ref, "unexpected", "FAILED", errorMessage(e)));
+    return false;
+  }
 }
 
 async function queuePullTimeout(env: Env, pullId: string): Promise<boolean> {

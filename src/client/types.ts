@@ -366,7 +366,7 @@ export type RmnCreated = { id: string; links: { linkId: string; creatorId: strin
 
 // ---------- ② Trend Monitoring ----------
 
-export type TrendPlatform = "instagram" | "tiktok";
+export type TrendPlatform = "instagram" | "tiktok" | "youtube";
 export type TrendTermKind = "hashtag" | "keyword";
 
 export type TrendWatchTerm = {

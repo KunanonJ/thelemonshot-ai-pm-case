@@ -5,7 +5,8 @@ import type { SourceNote, TrendExemplar, TrendSample, TrendTheme } from "./model
 // ② Trend Monitoring (FR-TM-1 to FR-TM-4). The brief is the runs row (product "trends"); these tables hold the
 // watchlist, the pulls, the per-term Apify cost and the deduplicated posts behind each brief.
 
-export const TREND_PLATFORMS = ["instagram", "tiktok"] as const;
+// Instagram and TikTok are pulled through Apify; YouTube through the free YouTube Data API (trends/youtube.ts)
+export const TREND_PLATFORMS = ["instagram", "tiktok", "youtube"] as const;
 export type TrendPlatform = (typeof TREND_PLATFORMS)[number];
 export const TREND_TERM_KINDS = ["hashtag", "keyword"] as const;
 export type TrendTermKind = (typeof TREND_TERM_KINDS)[number];
